@@ -61,7 +61,7 @@ with st.sidebar:
     selected_cities = st.multiselect(
         "Select Cities to Include in Route:",
         options=list(MASTER_CITIES.keys()),
-        default=list(MASTER_CITIES.keys())[:7]  # Set default to 7 for ultra-responsive backtracking
+        default=list(MASTER_CITIES.keys())[:7]
     )
     
     if len(selected_cities) < 3:
@@ -132,8 +132,6 @@ def solve_backtracking():
     if n > 10:
         return None
         
-    best_route = []
-    # Using python dict to bypass local variable allocation scopes
     tracker = {"best_dist": float('inf'), "best_path": []}
     
     def backtrack(curr_city, visited, current_path, current_dist):
@@ -144,7 +142,6 @@ def solve_backtracking():
             final_dist = current_dist + distance(curr_city, start_city, ACTIVE_CITIES)
             if final_dist < tracker["best_dist"]:
                 tracker["best_dist"] = final_dist
-                # FIX: Explicitly clone array elements to prevent stack mutation overwrites
                 tracker["best_path"] = list(current_path) + [start_city]
             return
             
@@ -152,7 +149,6 @@ def solve_backtracking():
             if nxt_city not in visited:
                 visited.add(nxt_city)
                 leg_dist = distance(curr_city, nxt_city, ACTIVE_CITIES)
-                # FIX: Send structural copies down recursion stacks
                 backtrack(nxt_city, visited, current_path + [nxt_city], current_dist + leg_dist)
                 visited.remove(nxt_city)
                 
@@ -160,9 +156,9 @@ def solve_backtracking():
     return tracker["best_path"]
 
 # -------------------------------------------------------------
-# LAYOUT PARTITIONING & CONTROLS
+# LAYOUT PARTITIONING & CONTROLS (FIXED LINE 167)
 # -------------------------------------------------------------
-col_control, col_display = st.columns()
+col_control, col_display = st.columns([1, 2])
 
 with col_control:
     st.subheader("⚙️ Control Settings")
@@ -193,7 +189,6 @@ if trigger_sim and run_valid:
     st.session_state.sim_running = True
     st.session_state.current_step = 1
 
-# Calculate Active Selection Strategy Path
 static_route = []
 total_static_dist = 0.0
 execution_time_ms = 0.0
@@ -227,7 +222,6 @@ with col_display:
     status_placeholder = st.empty()
 
     if run_valid and static_route:
-        # STATE A: Static Map View
         if not st.session_state.sim_running:
             map_data = [{
                 "Order": idx + 1, 
@@ -243,7 +237,6 @@ with col_display:
             map_placeholder.plotly_chart(fig, use_container_width=True, key=f"static_{algo}_{len(selected_cities)}_{start_city}")
             status_placeholder.success(f"Static path compiled via {algo}. Press 'Launch Live Simulation' to animate.")
 
-        # STATE B: Live Simulation Map View
         else:
             while st.session_state.current_step <= len(static_route):
                 current_sub_route = static_route[:st.session_state.current_step]
@@ -281,13 +274,11 @@ with col_display:
     st.markdown("---")
     st.subheader("🏁 Real-time Strategy Performance Comparison Matrix")
     
-    # 1. Greedy Run
     t0 = time.perf_counter()
     r_matrix_gr = solve_greedy()
     d_gr = route_distance(r_matrix_gr, ACTIVE_CITIES)
     ms_gr = (time.perf_counter() - t0) * 1000
     
-    # 2. Dynamic Run
     if len(selected_cities) <= 15:
         t0 = time.perf_counter()
         r_matrix_dp = solve_dynamic()
@@ -296,7 +287,6 @@ with col_display:
     else:
         d_dp, ms_dp = "Skipped (RAM Constraint)", "Timeout"
         
-    # 3. Backtracking Run
     if len(selected_cities) <= 10:
         t0 = time.perf_counter()
         r_matrix_bt = solve_backtracking()
