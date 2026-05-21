@@ -156,7 +156,7 @@ def solve_backtracking():
     return tracker["best_path"]
 
 # -------------------------------------------------------------
-# LAYOUT PARTITIONING & CONTROLS (FIXED LINE 167)
+# LAYOUT PARTITIONING & CONTROLS (FIXED RATIO INDICES)
 # -------------------------------------------------------------
 col_control, col_display = st.columns([1, 2])
 
@@ -223,12 +223,14 @@ with col_display:
 
     if run_valid and static_route:
         if not st.session_state.sim_running:
-            map_data = [{
-                "Order": idx + 1, 
-                "City": city, 
-                "Latitude": ACTIVE_CITIES[city][0], 
-                "Longitude": ACTIVE_CITIES[city][1]
-            } for idx, city in enumerate(static_route)]
+            map_data = []
+            for idx, city in enumerate(static_route):
+                map_data.append({
+                    "Order": idx + 1, 
+                    "City": city, 
+                    "Latitude": ACTIVE_CITIES[city][0], 
+                    "Longitude": ACTIVE_CITIES[city][1]
+                })
             
             df = pd.DataFrame(map_data)
             fig = px.line_mapbox(df, lat="Latitude", lon="Longitude", hover_name="City", zoom=3, height=550)
@@ -241,12 +243,14 @@ with col_display:
             while st.session_state.current_step <= len(static_route):
                 current_sub_route = static_route[:st.session_state.current_step]
                 
-                frame_data = [{
-                    "Order": idx + 1, 
-                    "City": c, 
-                    "Latitude": ACTIVE_CITIES[c][0], 
-                    "Longitude": ACTIVE_CITIES[c][1]
-                } for idx, c in enumerate(current_sub_route)]
+                frame_data = []
+                for idx, c in enumerate(current_sub_route):
+                    frame_data.append({
+                        "Order": idx + 1, 
+                        "City": c, 
+                        "Latitude": ACTIVE_CITIES[c][0], 
+                        "Longitude": ACTIVE_CITIES[c][1]
+                    })
                 
                 df_frame = pd.DataFrame(frame_data)
                 fig_frame = px.line_mapbox(df_frame, lat="Latitude", lon="Longitude", hover_name="City", zoom=3, height=550)
