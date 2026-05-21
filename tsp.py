@@ -6,6 +6,7 @@ import itertools
 import time
 import random
 
+# App Configuration
 st.set_page_config(page_title="Ultimate TSP Simulation Dashboard", layout="wide")
 
 st.title("🧬 The Ultimate Traveling Salesman Dashboard")
@@ -31,6 +32,7 @@ MASTER_CITIES = {
 
 # Core Math Helpers
 def distance(c1, c2, city_dict):
+    """Calculates geodesic distance using the Haversine formula."""
     lat1, lon1 = np.radians(city_dict[c1])
     lat2, lon2 = np.radians(city_dict[c2])
     dlat, dlon = lat2 - lat1, lon2 - lon1
@@ -38,10 +40,19 @@ def distance(c1, c2, city_dict):
     return 6371.0 * (2 * np.arcsin(np.sqrt(a)))
 
 def route_distance(r, city_dict):
+    """Calculates total closed loop sequence distance."""
     return sum(distance(r[i], r[i+1], city_dict) for i in range(len(r)-1))
 
 # -------------------------------------------------------------
-# FEATURE 1: DYNAMIC CITY SELECTION & FILTERING
+# SESSION STATE INITIALIZATION (Fixes Live Stream/Simulation)
+# -------------------------------------------------------------
+if "sim_running" not in st.session_state:
+    st.session_state.sim_running = False
+if "current_step" not in st.session_state:
+    st.session_state.current_step = 1
+
+# -------------------------------------------------------------
+# SIDEBAR: DYNAMIC CITY SELECTION
 # -------------------------------------------------------------
 with st.sidebar:
     st.header("🗺️ Network Workspace")
@@ -58,12 +69,14 @@ with st.sidebar:
         
     start_city = st.selectbox("Select Starting Hub:", options=selected_cities)
 
-# Filter active working set
+# Filter active working set based on user selection
 ACTIVE_CITIES = {k: MASTER_CITIES[k] for k in selected_cities}
 cities_list = list(ACTIVE_CITIES.keys())
 other_cities = [c for c in cities_list if c != start_city]
 
-# TSP Solver Core Implementations
+# -------------------------------------------------------------
+# TSP SOLVER CORE IMPLEMENTATIONS
+# -------------------------------------------------------------
 def solve_nearest_neighbor():
     route = [start_city]
     unvisited = other_cities.copy()
@@ -100,7 +113,9 @@ def solve_brute_force():
             best_dist, best_route = d, r
     return best_route
 
-# Layout Partitioning
+# -------------------------------------------------------------
+# LAYOUT PARTITIONING & CONTROLS
+# -------------------------------------------------------------
 col_control, col_display = st.columns([1, 2])
 
 with col_control:
@@ -110,9 +125,7 @@ with col_control:
                          "Genetic Algorithm (Smart Balanced)", 
                          "Brute Force (Perfect / Heavy CPU)"])
     
-    # -------------------------------------------------------------
-    # FEATURE 2: GENETIC ALGORITHM HYPERPARAMETER CONTROLS
-    # -------------------------------------------------------------
+    # Dynamic Tuners for Genetic Algorithm
     pop_size, gen_count, mut_rate = 50, 100, 0.3
     if algo == "Genetic Algorithm (Smart Balanced)":
         st.markdown("**🧬 Genetic Algorithm Tuners**")
@@ -122,12 +135,17 @@ with col_control:
     
     # Brute Force Safety Lockout Warning
     if algo == "Brute Force (Perfect / Heavy CPU)" and len(selected_cities) > 10:
-        st.warning(f"⚠️ Warning: Evaluating {len(selected_cities)} cities creates {np.math.factorial(len(selected_cities)-1):,} possible paths. Your browser might crash.")
+        st.warning(f"⚠️ Warning: Evaluating {len(selected_cities)} cities creates {np.math.factorial(len(selected_cities)-1):,} possible paths. Performance may drop.")
         
     st.markdown("---")
     st.subheader("🎬 Simulation Control")
     speed = st.slider("Step intervals (seconds):", min_value=0.05, max_value=2.0, value=0.3, step=0.05)
     trigger_sim = st.button("▶️ Launch Live Simulation")
+
+# Handle simulation triggers safely via session state
+if trigger_sim:
+    st.session_state.sim_running = True
+    st.session_state.current_step = 1
 
 # Run Current Selected Strategy Solver
 start_time = time.perf_counter()
@@ -140,7 +158,9 @@ else:
 execution_time_ms = (time.perf_counter() - start_time) * 1000
 total_static_dist = route_distance(static_route, ACTIVE_CITIES)
 
-# Display Workspaces
+# -------------------------------------------------------------
+# GRAPHICS AND MAIN RENDERING
+# -------------------------------------------------------------
 with col_display:
     st.subheader("📊 Algorithmic Benchmarks")
     m_col1, m_col2 = st.columns(2)
@@ -150,41 +170,47 @@ with col_display:
     map_placeholder = st.empty()
     status_placeholder = st.empty()
 
-    # -------------------------------------------------------------
-    # FEATURE 3 & 4: CORRECTED ROUTE ANIMATION LOOP
-    # -------------------------------------------------------------
-    if not trigger_sim:
+    # STATE A: Render static completed path profile if simulation is idle
+    if not st.session_state.sim_running:
         map_data = [{"Order": idx + 1, "City": city, "Latitude": ACTIVE_CITIES[city][0], "Longitude": ACTIVE_CITIES[city][1]} for idx, city in enumerate(static_route)]
         df = pd.DataFrame(map_data)
         fig = px.line_mapbox(df, lat="Latitude", lon="Longitude", hover_name="City", zoom=3, height=500)
         fig.update_layout(mapbox_style="carto-positron", margin={"r":0,"t":0,"l":0,"b":0})
         map_placeholder.plotly_chart(fig, use_container_width=True)
         status_placeholder.success(f"Static path compiled via {algo}. Press 'Launch Live Simulation' to animate this precise flight pattern.")
+
+    # STATE B: Live Animation Loop using persistent Session State Tracking
     else:
-        # Step-by-step rendering of the algorithm's actual solution path
-        for step in range(1, len(static_route) + 1):
-            current_sub_route = static_route[:step]
+        while st.session_state.current_step <= len(static_route):
+            current_sub_route = static_route[:st.session_state.current_step]
+            
             frame_data = [{"Order": idx + 1, "City": c, "Latitude": ACTIVE_CITIES[c][0], "Longitude": ACTIVE_CITIES[c][1]} for idx, c in enumerate(current_sub_route)]
             df_frame = pd.DataFrame(frame_data)
             
             fig_frame = px.line_mapbox(df_frame, lat="Latitude", lon="Longitude", hover_name="City", zoom=3, height=500)
             fig_frame.update_layout(mapbox_style="carto-positron", margin={"r":0,"t":0,"l":0,"b":0})
             
-            if step < len(static_route):
+            if st.session_state.current_step < len(static_route):
                 status_placeholder.info(f"✈️ Route leg dispatched: **{current_sub_route[-1]}**")
             else:
                 status_placeholder.success(f"🏁 Circuit finalized! Returned back to hub root: **{start_city}**")
                 
             map_placeholder.plotly_chart(fig_frame, use_container_width=True)
+            
+            st.session_state.current_step += 1
             time.sleep(speed)
+        
+        # Reset state once simulation finishes cleanly
+        st.session_state.sim_running = False
+        st.session_state.current_step = 1
 
     # -------------------------------------------------------------
-    # FEATURE 5: BACKGROUND COMPARISON MATRIX
+    # BACKGROUND COMPARISON MATRIX
     # -------------------------------------------------------------
     st.markdown("---")
     st.subheader("🏁 Real-time Strategy Performance Comparison Matrix")
     
-    # Run algorithms for benchmark profiling matrix
+    # Dynamic profiling run for background grid metrics
     t0 = time.perf_counter()
     r_nn = solve_nearest_neighbor()
     d_nn = route_distance(r_nn, ACTIVE_CITIES)
@@ -204,7 +230,7 @@ with col_display:
         d_bf, ms_bf = "Skipped (Too Slow)", "Timeout"
 
     comparison_data = {
-        "Strategy Engine": ["Nearest Neighbor", "Genetic Algorithm", "Brute Force"],
+        "Strategy Engine": ["Nearest Neighbor (Greedy)", "Genetic Algorithm (Evolutionary)", "Brute Force (Exact)"],
         "Calculated Loop Distance": [f"{d_nn:.2f} km", f"{d_ga:.2f} km", f"{d_bf:.2f} km" if isinstance(d_bf, float) else d_bf],
         "Execution Overhead Time": [f"{ms_nn:.2f} ms", f"{ms_ga:.2f} ms", f"{ms_bf:.2f} ms" if isinstance(ms_bf, float) else ms_bf]
     }
