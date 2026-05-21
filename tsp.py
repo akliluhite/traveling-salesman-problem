@@ -39,6 +39,8 @@ def distance(c1, c2, city_dict):
 
 def route_distance(r, city_dict):
     """Calculates total closed loop sequence distance."""
+    if not r or len(r) < 2:
+        return 0.0
     return sum(distance(r[i], r[i+1], city_dict) for i in range(len(r)-1))
 
 # -------------------------------------------------------------
@@ -57,7 +59,7 @@ with st.sidebar:
     selected_cities = st.multiselect(
         "Select Cities to Include in Route:",
         options=list(MASTER_CITIES.keys()),
-        default=list(MASTER_CITIES.keys())[:9]
+        default=list(MASTER_CITIES.keys())[:8]  # Defaulting to 8 for fast exact computation
     )
     
     if len(selected_cities) < 3:
@@ -183,7 +185,7 @@ if trigger_sim and run_valid:
     st.session_state.sim_running = True
     st.session_state.current_step = 1
 
-# CALCULATE THE ACTIVE ROUTE
+# Calculate Active Selection Strategy
 static_route = []
 total_static_dist = 0.0
 execution_time_ms = 0.0
@@ -218,47 +220,44 @@ with col_display:
 
     if run_valid:
         if not st.session_state.sim_running:
-            # BUILD DYNAMIC COORDINATE OBJECT LAYERS
-            map_data = []
-            for idx, city in enumerate(static_route):
-                map_data.append({
-                    "Order": idx + 1,
-                    "City": city,
-                    "Latitude": ACTIVE_CITIES[city][0],
-                    "Longitude": ACTIVE_CITIES[city][1]
-                })
-            df = pd.DataFrame(map_data)
+            # FIX: Unpacked coordinates cleanly into raw floats to bypass Plotly rendering cache bugs
+            map_data = [{
+                "Order": idx + 1, 
+                "City": city, 
+                "Latitude": ACTIVE_CITIES[city][0], 
+                "Longitude": ACTIVE_CITIES[city][1]
+            } for idx, city in enumerate(static_route)]
             
+            df = pd.DataFrame(map_data)
             fig = px.line_mapbox(df, lat="Latitude", lon="Longitude", hover_name="City", zoom=3, height=500)
             fig.update_layout(mapbox_style="carto-positron", margin={"r":0,"t":0,"l":0,"b":0})
             
-            # UNIQUE RE-RENDER KEY TRIGGER FIXED HERE
-            map_placeholder.plotly_chart(fig, use_container_width=True, key=f"map_view_{algo}_{len(selected_cities)}")
-            status_placeholder.success(f"Static path compiled via {algo}. Press 'Launch Live Simulation' to animate.")
+            # The dynamic combined key ensures instantaneous mapping canvas updates
+            map_placeholder.plotly_chart(fig, use_container_width=True, key=f"map_{algo}_{len(selected_cities)}_{start_city}")
+            status_placeholder.success(f"Static path compiled via {algo}. Select 'Launch Live Simulation' to animate tracking cycles.")
 
         else:
             while st.session_state.current_step <= len(static_route):
                 current_sub_route = static_route[:st.session_state.current_step]
                 
-                frame_data = []
-                for idx, c in enumerate(current_sub_route):
-                    frame_data.append({
-                        "Order": idx + 1,
-                        "City": c,
-                        "Latitude": ACTIVE_CITIES[c][0],
-                        "Longitude": ACTIVE_CITIES[c][1]
-                    })
-                df_frame = pd.DataFrame(frame_data)
+                # FIX: Unpacked coordinates for the animation frame loop
+                frame_data = [{
+                    "Order": idx + 1, 
+                    "City": c, 
+                    "Latitude": ACTIVE_CITIES[c][0], 
+                    "Longitude": ACTIVE_CITIES[c][1]
+                } for idx, c in enumerate(current_sub_route)]
                 
+                df_frame = pd.DataFrame(frame_data)
                 fig_frame = px.line_mapbox(df_frame, lat="Latitude", lon="Longitude", hover_name="City", zoom=3, height=500)
                 fig_frame.update_layout(mapbox_style="carto-positron", margin={"r":0,"t":0,"l":0,"b":0})
                 
                 if st.session_state.current_step < len(static_route):
                     status_placeholder.info(f"✈️ Route leg dispatched: **{current_sub_route[-1]}**")
                 else:
-                    status_placeholder.success(f"🏁 Circuit finalized! Returned back to: **{start_city}**")
+                    status_placeholder.success(f"🏁 Circuit finalized! Returned back to hub root: **{start_city}**")
                     
-                map_placeholder.plotly_chart(fig_frame, use_container_width=True, key=f"sim_map_{algo}_{st.session_state.current_step}")
+                map_placeholder.plotly_chart(fig_frame, use_container_width=True, key=f"sim_{algo}_{st.session_state.current_step}")
                 
                 st.session_state.current_step += 1
                 time.sleep(speed)
@@ -269,7 +268,7 @@ with col_display:
         status_placeholder.warning("Reduce node target counts in the sidebar workspace selection to load charts.")
 
     # -------------------------------------------------------------
-    # BACKGROUND COMPARISON MATRIX (FIXED VARIABLES TO PREVENT OVERWRITES)
+    # BACKGROUND COMPARISON MATRIX
     # -------------------------------------------------------------
     st.markdown("---")
     st.subheader("🏁 Real-time Strategy Performance Comparison Matrix")
