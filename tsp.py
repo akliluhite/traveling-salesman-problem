@@ -2,9 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
-import itertools
 import time
-import random
 
 # App Configuration
 st.set_page_config(page_title="Ultimate TSP Simulation Dashboard", layout="wide")
@@ -59,7 +57,7 @@ with st.sidebar:
     selected_cities = st.multiselect(
         "Select Cities to Include in Route:",
         options=list(MASTER_CITIES.keys()),
-        default=list(MASTER_CITIES.keys())[:10]
+        default=list(MASTER_CITIES.keys())[:9] # Defaulting to 9 for safe processing limits
     )
     
     # Validation safety check
@@ -77,7 +75,9 @@ other_cities = [c for c in cities_list if c != start_city]
 # -------------------------------------------------------------
 # TSP SOLVER CORE IMPLEMENTATIONS
 # -------------------------------------------------------------
-def solve_nearest_neighbor():
+
+# 1. GREEDY (Nearest Neighbor)
+def solve_greedy():
     route = [start_city]
     unvisited = other_cities.copy()
     while unvisited:
@@ -87,76 +87,126 @@ def solve_nearest_neighbor():
     route.append(start_city)
     return route
 
-def solve_genetic(pop_size, generations, mutation_rate):
-    population = [[start_city] + random.sample(other_cities, len(other_cities)) + [start_city] for _ in range(pop_size)]
-    for _ in range(generations):
-        population = sorted(population, key=lambda r: route_distance(r, ACTIVE_CITIES))
-        survivors = population[:max(2, int(pop_size * 0.2))]
-        next_pop = survivors.copy()
-        while len(next_pop) < pop_size:
-            parent = random.choice(survivors)
-            child = parent.copy()
-            if random.random() < mutation_rate and len(cities_list) > 2:
-                idx1, idx2 = random.sample(range(1, len(cities_list)), 2)
-                child[idx1], child[idx2] = child[idx2], child[idx1]
-            next_pop.append(child)
-        population = next_pop
-    return sorted(population, key=lambda r: route_distance(r, ACTIVE_CITIES))
+# 2. DYNAMIC PROGRAMMING (Held-Karp Algorithm)
+def solve_dynamic():
+    n = len(cities_list)
+    if n > 15: # Critical protection limit against RAM overflow
+        return None
+        
+    mapping = {city: i for i, city in enumerate(cities_list)}
+    inv_mapping = {i: city for i, city in enumerate(cities_list)}
+    start_idx = mapping[start_city]
+    
+    # Precompute distance matrix
+    dist_matrix = np.zeros((n, n))
+    for i in range(n):
+        for j in range(n):
+            dist_matrix[i][j] = distance(inv_mapping[i], inv_mapping[j], ACTIVE_CITIES)
+            
+    memo = {}
+    
+    def hk_solve(mask, u):
+        if mask == (1 << n) - 1:
+            return dist_matrix[u][start_idx], [start_idx]
+        if (mask, u) in memo:
+            return memo[(mask, u)]
+            
+        ans = float('inf')
+        best_path = []
+        
+        for v in range(n):
+            if not (mask & (1 << v)):
+                cost, path = hk_solve(mask | (1 << v), v)
+                total_cost = dist_matrix[u][v] + cost
+                if total_cost < ans:
+                    ans = total_cost
+                    best_path = [v] + path
+                    
+        memo[(mask, u)] = (ans, best_path)
+        return memo[(mask, u)]
+        
+    _, path_indices = hk_solve(1 << start_idx, start_idx)
+    full_path = [start_city] + [inv_mapping[i] for i in path_indices]
+    return full_path
 
-def solve_brute_force():
-    best_dist = float('inf')
+# 3. BACKTRACKING
+def solve_backtracking():
+    n = len(cities_list)
+    if n > 10: # Safety barrier to prevent thread lockups
+        return None
+        
     best_route = []
-    for p in itertools.permutations(other_cities):
-        r = [start_city] + list(p) + [start_city]
-        d = route_distance(r, ACTIVE_CITIES)
-        if d < best_dist:
-            best_dist, best_route = d, r
+    best_dist = float('inf')
+    
+    def backtrack(curr_city, visited, current_path, current_dist):
+        nonlocal best_dist, best_route
+        
+        if current_dist >= best_dist:
+            return
+            
+        if len(visited) == n:
+            final_dist = current_dist + distance(curr_city, start_city, ACTIVE_CITIES)
+            if final_dist < best_dist:
+                best_dist = final_dist
+                best_route = current_path + [start_city]
+            return
+            
+        for nxt_city in other_cities:
+            if nxt_city not in visited:
+                visited.add(nxt_city)
+                leg_dist = distance(curr_city, nxt_city, ACTIVE_CITIES)
+                backtrack(nxt_city, visited, current_path + [nxt_city], current_dist + leg_dist)
+                visited.remove(nxt_city)
+                
+    backtrack(start_city, {start_city}, [start_city], 0.0)
     return best_route
 
 # -------------------------------------------------------------
 # LAYOUT PARTITIONING & CONTROLS
 # -------------------------------------------------------------
-col_control, col_display = st.columns([1, 2])
+col_control, col_display = st.columns()
 
 with col_control:
     st.subheader("⚙️ Control Settings")
     algo = st.selectbox("Choose Active Evaluation Strategy:", 
-                        ["Nearest Neighbor (Fast / Greedy)", 
-                         "Genetic Algorithm (Smart Balanced)", 
-                         "Brute Force (Perfect / Heavy CPU)"])
+                        ["Greedy (Fast / Heuristic)", 
+                         "Dynamic Programming (Held-Karp Exact)", 
+                         "Backtracking (Exhaustive Search Exact)"])
     
-    # Dynamic Tuners for Genetic Algorithm
-    pop_size, gen_count, mut_rate = 50, 100, 0.3
-    if algo == "Genetic Algorithm (Smart Balanced)":
-        st.markdown("**🧬 Genetic Algorithm Tuners**")
-        pop_size = st.slider("Population Size:", 10, 200, 50, step=10)
-        gen_count = st.slider("Generations Loop:", 10, 500, 100, step=10)
-        mut_rate = st.slider("Mutation Probability:", 0.0, 1.0, 0.3, step=0.05)
-    
-    # Brute Force Safety Lockout Warning
-    if algo == "Brute Force (Perfect / Heavy CPU)" and len(selected_cities) > 10:
-        st.warning(f"⚠️ Warning: Evaluating {len(selected_cities)} cities creates {np.math.factorial(len(selected_cities)-1):,} possible paths. Performance may drop.")
+    # Engine Check & Warning Block
+    run_valid = True
+    if algo == "Dynamic Programming (Held-Karp Exact)" and len(selected_cities) > 15:
+        st.error("⚠️ Dynamic Programming is restricted to 15 cities maximum to avoid system memory crash.")
+        run_valid = False
+    elif algo == "Backtracking (Exhaustive Search Exact)" and len(selected_cities) > 10:
+        st.error("⚠️ Backtracking is locked down above 10 cities because the browser execution script will freeze.")
+        run_valid = False
         
     st.markdown("---")
     st.subheader("🎬 Simulation Control")
     speed = st.slider("Step intervals (seconds):", min_value=0.05, max_value=2.0, value=0.3, step=0.05)
-    trigger_sim = st.button("▶️ Launch Live Simulation")
+    trigger_sim = st.button("▶️ Launch Live Simulation", disabled=not run_valid)
 
 # Handle simulation triggers safely via session state
-if trigger_sim:
+if trigger_sim and run_valid:
     st.session_state.sim_running = True
     st.session_state.current_step = 1
 
 # Run Current Selected Strategy Solver
-start_time = time.perf_counter()
-if algo == "Nearest Neighbor (Fast / Greedy)":
-    static_route = solve_nearest_neighbor()
-elif algo == "Genetic Algorithm (Smart Balanced)":
-    static_route = solve_genetic(pop_size, gen_count, mut_rate)
-else:
-    static_route = solve_brute_force()
-execution_time_ms = (time.perf_counter() - start_time) * 1000
-total_static_dist = route_distance(static_route, ACTIVE_CITIES)
+static_route = []
+total_static_dist = 0.0
+execution_time_ms = 0.0
+
+if run_valid:
+    start_time = time.perf_counter()
+    if algo == "Greedy (Fast / Heuristic)":
+        static_route = solve_greedy()
+    elif algo == "Dynamic Programming (Held-Karp Exact)":
+        static_route = solve_dynamic()
+    else:
+        static_route = solve_backtracking()
+    execution_time_ms = (time.perf_counter() - start_time) * 1000
+    total_static_dist = route_distance(static_route, ACTIVE_CITIES)
 
 # -------------------------------------------------------------
 # GRAPHICS AND MAIN RENDERING
@@ -164,48 +214,54 @@ total_static_dist = route_distance(static_route, ACTIVE_CITIES)
 with col_display:
     st.subheader("📊 Algorithmic Benchmarks")
     m_col1, m_col2 = st.columns(2)
-    m_col1.metric(label="Calculated Loop Distance", value=f"{total_static_dist:.2f} km")
-    m_col2.metric(label="Compute Processing Velocity", value=f"{execution_time_ms:.2f} ms")
+    
+    if run_valid:
+        m_col1.metric(label="Calculated Loop Distance", value=f"{total_static_dist:.2f} km")
+        m_col2.metric(label="Compute Processing Velocity", value=f"{execution_time_ms:.2f} ms")
+    else:
+        m_col1.metric(label="Calculated Loop Distance", value="N/A")
+        m_col2.metric(label="Compute Processing Velocity", value="Oversized Set")
     
     map_placeholder = st.empty()
     status_placeholder = st.empty()
 
-    # STATE A: Render static completed path profile if simulation is idle
-    if not st.session_state.sim_running:
-        map_data = [{"Order": idx + 1, "City": city, "Latitude": ACTIVE_CITIES[city][0], "Longitude": ACTIVE_CITIES[city][1]} for idx, city in enumerate(static_route)]
-        df = pd.DataFrame(map_data)
-        fig = px.line_mapbox(df, lat="Latitude", lon="Longitude", hover_name="City", zoom=3, height=500)
-        fig.update_layout(mapbox_style="carto-positron", margin={"r":0,"t":0,"l":0,"b":0})
-        
-        # The key forces Streamlit to uniquely redraw the chart layout on user input changes
-        map_placeholder.plotly_chart(fig, use_container_width=True, key=f"static_map_{algo}_{len(selected_cities)}")
-        status_placeholder.success(f"Static path compiled via {algo}. Press 'Launch Live Simulation' to animate this precise flight pattern.")
+    if run_valid:
+        # STATE A: Render static completed path profile if simulation is idle
+        if not st.session_state.sim_running:
+            map_data = [{"Order": idx + 1, "City": city, "Latitude": ACTIVE_CITIES[city][0], "Longitude": ACTIVE_CITIES[city][1]} for idx, city in enumerate(static_route)]
+            df = pd.DataFrame(map_data)
+            fig = px.line_mapbox(df, lat="Latitude", lon="Longitude", hover_name="City", zoom=3, height=500)
+            fig.update_layout(mapbox_style="carto-positron", margin={"r":0,"t":0,"l":0,"b":0})
+            
+            map_placeholder.plotly_chart(fig, use_container_width=True, key=f"static_map_{algo}_{len(selected_cities)}")
+            status_placeholder.success(f"Static path compiled via {algo}. Press 'Launch Live Simulation' to animate this precise flight pattern.")
 
-    # STATE B: Live Animation Loop using persistent Session State Tracking
-    else:
-        while st.session_state.current_step <= len(static_route):
-            current_sub_route = static_route[:st.session_state.current_step]
-            
-            frame_data = [{"Order": idx + 1, "City": c, "Latitude": ACTIVE_CITIES[c][0], "Longitude": ACTIVE_CITIES[c][1]} for idx, c in enumerate(current_sub_route)]
-            df_frame = pd.DataFrame(frame_data)
-            
-            fig_frame = px.line_mapbox(df_frame, lat="Latitude", lon="Longitude", hover_name="City", zoom=3, height=500)
-            fig_frame.update_layout(mapbox_style="carto-positron", margin={"r":0,"t":0,"l":0,"b":0})
-            
-            if st.session_state.current_step < len(static_route):
-                status_placeholder.info(f"✈️ Route leg dispatched: **{current_sub_route[-1]}**")
-            else:
-                status_placeholder.success(f"🏁 Circuit finalized! Returned back to hub root: **{start_city}**")
+        # STATE B: Live Animation Loop using persistent Session State Tracking
+        else:
+            while st.session_state.current_step <= len(static_route):
+                current_sub_route = static_route[:st.session_state.current_step]
                 
-            # Dynamic step keys fix animation canvas freezing bugs
-            map_placeholder.plotly_chart(fig_frame, use_container_width=True, key=f"sim_map_{algo}_{st.session_state.current_step}")
+                frame_data = [{"Order": idx + 1, "City": c, "Latitude": ACTIVE_CITIES[c][0], "Longitude": ACTIVE_CITIES[c][1]} for idx, c in enumerate(current_sub_route)]
+                df_frame = pd.DataFrame(frame_data)
+                
+                fig_frame = px.line_mapbox(df_frame, lat="Latitude", lon="Longitude", hover_name="City", zoom=3, height=500)
+                fig_frame.update_layout(mapbox_style="carto-positron", margin={"r":0,"t":0,"l":0,"b":0})
+                
+                if st.session_state.current_step < len(static_route):
+                    status_placeholder.info(f"✈️ Route leg dispatched: **{current_sub_route[-1]}**")
+                else:
+                    status_placeholder.success(f"🏁 Circuit finalized! Returned back to hub root: **{start_city}**")
+                    
+                map_placeholder.plotly_chart(fig_frame, use_container_width=True, key=f"sim_map_{algo}_{st.session_state.current_step}")
+                
+                st.session_state.current_step += 1
+                time.sleep(speed)
             
-            st.session_state.current_step += 1
-            time.sleep(speed)
-        
-        # Reset state once simulation finishes cleanly
-        st.session_state.sim_running = False
-        st.session_state.current_step = 1
+            # Reset state once simulation finishes cleanly
+            st.session_state.sim_running = False
+            st.session_state.current_step = 1
+    else:
+        status_placeholder.warning("Reduce node target counts in the sidebar workspace selection to load data visualizations.")
 
     # -------------------------------------------------------------
     # BACKGROUND COMPARISON MATRIX
@@ -213,28 +269,33 @@ with col_display:
     st.markdown("---")
     st.subheader("🏁 Real-time Strategy Performance Comparison Matrix")
     
-    # Dynamic profiling run for background grid metrics
+    # 1. Run Greedy Matrix Profile
     t0 = time.perf_counter()
-    r_nn = solve_nearest_neighbor()
-    d_nn = route_distance(r_nn, ACTIVE_CITIES)
-    ms_nn = (time.perf_counter() - t0) * 1000
+    r_gr = solve_greedy()
+    d_gr = route_distance(r_gr, ACTIVE_CITIES)
+    ms_gr = (time.perf_counter() - t0) * 1000
     
-    t0 = time.perf_counter()
-    r_ga = solve_genetic(pop_size, gen_count, mut_rate)
-    d_ga = route_distance(r_ga, ACTIVE_CITIES)
-    ms_ga = (time.perf_counter() - t0) * 1000
-    
+    # 2. Run Dynamic Matrix Profile
+    if len(selected_cities) <= 15:
+        t0 = time.perf_counter()
+        r_dp = solve_dynamic()
+        d_dp = route_distance(r_dp, ACTIVE_CITIES)
+        ms_dp = (time.perf_counter() - t0) * 1000
+    else:
+        d_dp, ms_dp = "Skipped (RAM Constraint)", "Timeout"
+        
+    # 3. Run Backtracking Matrix Profile
     if len(selected_cities) <= 10:
         t0 = time.perf_counter()
-        r_bf = solve_brute_force()
-        d_bf = route_distance(r_bf, ACTIVE_CITIES)
-        ms_bf = (time.perf_counter() - t0) * 1000
+        r_bt = solve_backtracking()
+        d_bt = route_distance(r_bt, ACTIVE_CITIES)
+        ms_bt = (time.perf_counter() - t0) * 1000
     else:
-        d_bf, ms_bf = "Skipped (Too Slow)", "Timeout"
+        d_bt, ms_bt = "Skipped (CPU Lock Risk)", "Timeout"
 
     comparison_data = {
-        "Strategy Engine": ["Nearest Neighbor (Greedy)", "Genetic Algorithm (Evolutionary)", "Brute Force (Exact)"],
-        "Calculated Loop Distance": [f"{d_nn:.2f} km", f"{d_ga:.2f} km", f"{d_bf:.2f} km" if isinstance(d_bf, float) else d_bf],
-        "Execution Overhead Time": [f"{ms_nn:.2f} ms", f"{ms_ga:.2f} ms", f"{ms_bf:.2f} ms" if isinstance(ms_bf, float) else ms_bf]
+        "Strategy Engine": ["Greedy (Nearest Neighbor)", "Dynamic Programming (Held-Karp)", "Backtracking (Exhaustive)"],
+        "Calculated Loop Distance": [f"{d_gr:.2f} km", f"{d_dp:.2f} km" if isinstance(d_dp, float) else d_dp, f"{d_bt:.2f} km" if isinstance(d_bt, float) else d_bt],
+        "Execution Overhead Time": [f"{ms_gr:.2f} ms", f"{ms_dp:.2f} ms" if isinstance(ms_dp, float) else ms_dp, f"{ms_bt:.2f} ms" if isinstance(ms_bt, float) else ms_bt]
     }
     st.table(pd.DataFrame(comparison_data))
