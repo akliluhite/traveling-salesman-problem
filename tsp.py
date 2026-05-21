@@ -155,7 +155,7 @@ def solve_backtracking():
     return best_route
 
 # -------------------------------------------------------------
-# LAYOUT PARTITIONING & CONTROLS (FIXED LINE 167)
+# LAYOUT PARTITIONING & CONTROLS
 # -------------------------------------------------------------
 col_control, col_display = st.columns([1, 2])
 
@@ -183,6 +183,7 @@ if trigger_sim and run_valid:
     st.session_state.sim_running = True
     st.session_state.current_step = 1
 
+# CALCULATE THE ACTIVE ROUTE
 static_route = []
 total_static_dist = 0.0
 execution_time_ms = 0.0
@@ -217,19 +218,36 @@ with col_display:
 
     if run_valid:
         if not st.session_state.sim_running:
-            map_data = [{"Order": idx + 1, "City": city, "Latitude": ACTIVE_CITIES[city][0], "Longitude": ACTIVE_CITIES[city][1]} for idx, city in enumerate(static_route)]
+            # BUILD DYNAMIC COORDINATE OBJECT LAYERS
+            map_data = []
+            for idx, city in enumerate(static_route):
+                map_data.append({
+                    "Order": idx + 1,
+                    "City": city,
+                    "Latitude": ACTIVE_CITIES[city][0],
+                    "Longitude": ACTIVE_CITIES[city][1]
+                })
             df = pd.DataFrame(map_data)
+            
             fig = px.line_mapbox(df, lat="Latitude", lon="Longitude", hover_name="City", zoom=3, height=500)
             fig.update_layout(mapbox_style="carto-positron", margin={"r":0,"t":0,"l":0,"b":0})
             
-            map_placeholder.plotly_chart(fig, use_container_width=True, key=f"static_map_{algo}_{len(selected_cities)}")
-            status_placeholder.success(f"Static path compiled via {algo}.")
+            # UNIQUE RE-RENDER KEY TRIGGER FIXED HERE
+            map_placeholder.plotly_chart(fig, use_container_width=True, key=f"map_view_{algo}_{len(selected_cities)}")
+            status_placeholder.success(f"Static path compiled via {algo}. Press 'Launch Live Simulation' to animate.")
 
         else:
             while st.session_state.current_step <= len(static_route):
                 current_sub_route = static_route[:st.session_state.current_step]
                 
-                frame_data = [{"Order": idx + 1, "City": c, "Latitude": ACTIVE_CITIES[c][0], "Longitude": ACTIVE_CITIES[c][1]} for idx, c in enumerate(current_sub_route)]
+                frame_data = []
+                for idx, c in enumerate(current_sub_route):
+                    frame_data.append({
+                        "Order": idx + 1,
+                        "City": c,
+                        "Latitude": ACTIVE_CITIES[c][0],
+                        "Longitude": ACTIVE_CITIES[c][1]
+                    })
                 df_frame = pd.DataFrame(frame_data)
                 
                 fig_frame = px.line_mapbox(df_frame, lat="Latitude", lon="Longitude", hover_name="City", zoom=3, height=500)
@@ -248,31 +266,34 @@ with col_display:
             st.session_state.sim_running = False
             st.session_state.current_step = 1
     else:
-        status_placeholder.warning("Reduce node target counts in the sidebar workspace selection.")
+        status_placeholder.warning("Reduce node target counts in the sidebar workspace selection to load charts.")
 
     # -------------------------------------------------------------
-    # BACKGROUND COMPARISON MATRIX
+    # BACKGROUND COMPARISON MATRIX (FIXED VARIABLES TO PREVENT OVERWRITES)
     # -------------------------------------------------------------
     st.markdown("---")
     st.subheader("🏁 Real-time Strategy Performance Comparison Matrix")
     
+    # 1. Run Greedy Matrix Profile
     t0 = time.perf_counter()
-    r_gr = solve_greedy()
-    d_gr = route_distance(r_gr, ACTIVE_CITIES)
+    r_matrix_gr = solve_greedy()
+    d_gr = route_distance(r_matrix_gr, ACTIVE_CITIES)
     ms_gr = (time.perf_counter() - t0) * 1000
     
+    # 2. Run Dynamic Matrix Profile
     if len(selected_cities) <= 15:
         t0 = time.perf_counter()
-        r_dp = solve_dynamic()
-        d_dp = route_distance(r_dp, ACTIVE_CITIES)
+        r_matrix_dp = solve_dynamic()
+        d_dp = route_distance(r_matrix_dp, ACTIVE_CITIES) if r_matrix_dp else float('inf')
         ms_dp = (time.perf_counter() - t0) * 1000
     else:
         d_dp, ms_dp = "Skipped (RAM Constraint)", "Timeout"
         
+    # 3. Run Backtracking Matrix Profile
     if len(selected_cities) <= 10:
         t0 = time.perf_counter()
-        r_bt = solve_backtracking()
-        d_bt = route_distance(r_bt, ACTIVE_CITIES)
+        r_matrix_bt = solve_backtracking()
+        d_bt = route_distance(r_matrix_bt, ACTIVE_CITIES) if r_matrix_bt else float('inf')
         ms_bt = (time.perf_counter() - t0) * 1000
     else:
         d_bt, ms_bt = "Skipped (CPU Lock Risk)", "Timeout"
