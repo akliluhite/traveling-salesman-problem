@@ -44,7 +44,7 @@ def route_distance(r, city_dict):
     return sum(distance(r[i], r[i+1], city_dict) for i in range(len(r)-1))
 
 # -------------------------------------------------------------
-# SESSION STATE INITIALIZATION (Fixes Live Stream/Simulation)
+# SESSION STATE INITIALIZATION
 # -------------------------------------------------------------
 if "sim_running" not in st.session_state:
     st.session_state.sim_running = False
@@ -101,7 +101,7 @@ def solve_genetic(pop_size, generations, mutation_rate):
                 child[idx1], child[idx2] = child[idx2], child[idx1]
             next_pop.append(child)
         population = next_pop
-    return sorted(population, key=lambda r: route_distance(r, ACTIVE_CITIES))[0]
+    return sorted(population, key=lambda r: route_distance(r, ACTIVE_CITIES))
 
 def solve_brute_force():
     best_dist = float('inf')
@@ -176,7 +176,9 @@ with col_display:
         df = pd.DataFrame(map_data)
         fig = px.line_mapbox(df, lat="Latitude", lon="Longitude", hover_name="City", zoom=3, height=500)
         fig.update_layout(mapbox_style="carto-positron", margin={"r":0,"t":0,"l":0,"b":0})
-        map_placeholder.plotly_chart(fig, use_container_width=True)
+        
+        # The key forces Streamlit to uniquely redraw the chart layout on user input changes
+        map_placeholder.plotly_chart(fig, use_container_width=True, key=f"static_map_{algo}_{len(selected_cities)}")
         status_placeholder.success(f"Static path compiled via {algo}. Press 'Launch Live Simulation' to animate this precise flight pattern.")
 
     # STATE B: Live Animation Loop using persistent Session State Tracking
@@ -195,7 +197,8 @@ with col_display:
             else:
                 status_placeholder.success(f"🏁 Circuit finalized! Returned back to hub root: **{start_city}**")
                 
-            map_placeholder.plotly_chart(fig_frame, use_container_width=True)
+            # Dynamic step keys fix animation canvas freezing bugs
+            map_placeholder.plotly_chart(fig_frame, use_container_width=True, key=f"sim_map_{algo}_{st.session_state.current_step}")
             
             st.session_state.current_step += 1
             time.sleep(speed)
