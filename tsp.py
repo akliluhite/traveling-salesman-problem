@@ -57,17 +57,15 @@ with st.sidebar:
     selected_cities = st.multiselect(
         "Select Cities to Include in Route:",
         options=list(MASTER_CITIES.keys()),
-        default=list(MASTER_CITIES.keys())[:9] # Defaulting to 9 for safe processing limits
+        default=list(MASTER_CITIES.keys())[:9]
     )
     
-    # Validation safety check
     if len(selected_cities) < 3:
         st.error("Please select at least 3 cities to map a closed-loop route.")
         st.stop()
         
     start_city = st.selectbox("Select Starting Hub:", options=selected_cities)
 
-# Filter active working set based on user selection
 ACTIVE_CITIES = {k: MASTER_CITIES[k] for k in selected_cities}
 cities_list = list(ACTIVE_CITIES.keys())
 other_cities = [c for c in cities_list if c != start_city]
@@ -75,8 +73,6 @@ other_cities = [c for c in cities_list if c != start_city]
 # -------------------------------------------------------------
 # TSP SOLVER CORE IMPLEMENTATIONS
 # -------------------------------------------------------------
-
-# 1. GREEDY (Nearest Neighbor)
 def solve_greedy():
     route = [start_city]
     unvisited = other_cities.copy()
@@ -87,17 +83,15 @@ def solve_greedy():
     route.append(start_city)
     return route
 
-# 2. DYNAMIC PROGRAMMING (Held-Karp Algorithm)
 def solve_dynamic():
     n = len(cities_list)
-    if n > 15: # Critical protection limit against RAM overflow
+    if n > 15:
         return None
         
     mapping = {city: i for i, city in enumerate(cities_list)}
     inv_mapping = {i: city for i, city in enumerate(cities_list)}
     start_idx = mapping[start_city]
     
-    # Precompute distance matrix
     dist_matrix = np.zeros((n, n))
     for i in range(n):
         for j in range(n):
@@ -129,10 +123,9 @@ def solve_dynamic():
     full_path = [start_city] + [inv_mapping[i] for i in path_indices]
     return full_path
 
-# 3. BACKTRACKING
 def solve_backtracking():
     n = len(cities_list)
-    if n > 10: # Safety barrier to prevent thread lockups
+    if n > 10:
         return None
         
     best_route = []
@@ -162,9 +155,9 @@ def solve_backtracking():
     return best_route
 
 # -------------------------------------------------------------
-# LAYOUT PARTITIONING & CONTROLS
+# LAYOUT PARTITIONING & CONTROLS (FIXED LINE 167)
 # -------------------------------------------------------------
-col_control, col_display = st.columns()
+col_control, col_display = st.columns([1, 2])
 
 with col_control:
     st.subheader("⚙️ Control Settings")
@@ -173,13 +166,12 @@ with col_control:
                          "Dynamic Programming (Held-Karp Exact)", 
                          "Backtracking (Exhaustive Search Exact)"])
     
-    # Engine Check & Warning Block
     run_valid = True
     if algo == "Dynamic Programming (Held-Karp Exact)" and len(selected_cities) > 15:
-        st.error("⚠️ Dynamic Programming is restricted to 15 cities maximum to avoid system memory crash.")
+        st.error("⚠️ Dynamic Programming is restricted to 15 cities maximum.")
         run_valid = False
     elif algo == "Backtracking (Exhaustive Search Exact)" and len(selected_cities) > 10:
-        st.error("⚠️ Backtracking is locked down above 10 cities because the browser execution script will freeze.")
+        st.error("⚠️ Backtracking is locked down above 10 cities.")
         run_valid = False
         
     st.markdown("---")
@@ -187,12 +179,10 @@ with col_control:
     speed = st.slider("Step intervals (seconds):", min_value=0.05, max_value=2.0, value=0.3, step=0.05)
     trigger_sim = st.button("▶️ Launch Live Simulation", disabled=not run_valid)
 
-# Handle simulation triggers safely via session state
 if trigger_sim and run_valid:
     st.session_state.sim_running = True
     st.session_state.current_step = 1
 
-# Run Current Selected Strategy Solver
 static_route = []
 total_static_dist = 0.0
 execution_time_ms = 0.0
@@ -226,7 +216,6 @@ with col_display:
     status_placeholder = st.empty()
 
     if run_valid:
-        # STATE A: Render static completed path profile if simulation is idle
         if not st.session_state.sim_running:
             map_data = [{"Order": idx + 1, "City": city, "Latitude": ACTIVE_CITIES[city][0], "Longitude": ACTIVE_CITIES[city][1]} for idx, city in enumerate(static_route)]
             df = pd.DataFrame(map_data)
@@ -234,9 +223,8 @@ with col_display:
             fig.update_layout(mapbox_style="carto-positron", margin={"r":0,"t":0,"l":0,"b":0})
             
             map_placeholder.plotly_chart(fig, use_container_width=True, key=f"static_map_{algo}_{len(selected_cities)}")
-            status_placeholder.success(f"Static path compiled via {algo}. Press 'Launch Live Simulation' to animate this precise flight pattern.")
+            status_placeholder.success(f"Static path compiled via {algo}.")
 
-        # STATE B: Live Animation Loop using persistent Session State Tracking
         else:
             while st.session_state.current_step <= len(static_route):
                 current_sub_route = static_route[:st.session_state.current_step]
@@ -250,18 +238,17 @@ with col_display:
                 if st.session_state.current_step < len(static_route):
                     status_placeholder.info(f"✈️ Route leg dispatched: **{current_sub_route[-1]}**")
                 else:
-                    status_placeholder.success(f"🏁 Circuit finalized! Returned back to hub root: **{start_city}**")
+                    status_placeholder.success(f"🏁 Circuit finalized! Returned back to: **{start_city}**")
                     
                 map_placeholder.plotly_chart(fig_frame, use_container_width=True, key=f"sim_map_{algo}_{st.session_state.current_step}")
                 
                 st.session_state.current_step += 1
                 time.sleep(speed)
             
-            # Reset state once simulation finishes cleanly
             st.session_state.sim_running = False
             st.session_state.current_step = 1
     else:
-        status_placeholder.warning("Reduce node target counts in the sidebar workspace selection to load data visualizations.")
+        status_placeholder.warning("Reduce node target counts in the sidebar workspace selection.")
 
     # -------------------------------------------------------------
     # BACKGROUND COMPARISON MATRIX
@@ -269,13 +256,11 @@ with col_display:
     st.markdown("---")
     st.subheader("🏁 Real-time Strategy Performance Comparison Matrix")
     
-    # 1. Run Greedy Matrix Profile
     t0 = time.perf_counter()
     r_gr = solve_greedy()
     d_gr = route_distance(r_gr, ACTIVE_CITIES)
     ms_gr = (time.perf_counter() - t0) * 1000
     
-    # 2. Run Dynamic Matrix Profile
     if len(selected_cities) <= 15:
         t0 = time.perf_counter()
         r_dp = solve_dynamic()
@@ -284,7 +269,6 @@ with col_display:
     else:
         d_dp, ms_dp = "Skipped (RAM Constraint)", "Timeout"
         
-    # 3. Run Backtracking Matrix Profile
     if len(selected_cities) <= 10:
         t0 = time.perf_counter()
         r_bt = solve_backtracking()
