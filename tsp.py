@@ -61,7 +61,7 @@ with st.sidebar:
     selected_cities = st.multiselect(
         "Select Cities to Include in Route:",
         options=list(MASTER_CITIES.keys()),
-        default=list(MASTER_CITIES.keys())[:8]  # Defaulting to 8 for fast exact computation
+        default=list(MASTER_CITIES.keys())[:7]  # Set default to 7 for ultra-responsive backtracking
     )
     
     if len(selected_cities) < 3:
@@ -133,35 +133,36 @@ def solve_backtracking():
         return None
         
     best_route = []
-    best_dist = float('inf')
+    # Using python dict to bypass local variable allocation scopes
+    tracker = {"best_dist": float('inf'), "best_path": []}
     
     def backtrack(curr_city, visited, current_path, current_dist):
-        nonlocal best_dist, best_route
-        
-        if current_dist >= best_dist:
+        if current_dist >= tracker["best_dist"]:
             return
             
         if len(visited) == n:
             final_dist = current_dist + distance(curr_city, start_city, ACTIVE_CITIES)
-            if final_dist < best_dist:
-                best_dist = final_dist
-                best_route = current_path + [start_city]
+            if final_dist < tracker["best_dist"]:
+                tracker["best_dist"] = final_dist
+                # FIX: Explicitly clone array elements to prevent stack mutation overwrites
+                tracker["best_path"] = list(current_path) + [start_city]
             return
             
         for nxt_city in other_cities:
             if nxt_city not in visited:
                 visited.add(nxt_city)
                 leg_dist = distance(curr_city, nxt_city, ACTIVE_CITIES)
+                # FIX: Send structural copies down recursion stacks
                 backtrack(nxt_city, visited, current_path + [nxt_city], current_dist + leg_dist)
                 visited.remove(nxt_city)
                 
     backtrack(start_city, {start_city}, [start_city], 0.0)
-    return best_route
+    return tracker["best_path"]
 
 # -------------------------------------------------------------
 # LAYOUT PARTITIONING & CONTROLS
 # -------------------------------------------------------------
-col_control, col_display = st.columns([1, 2])
+col_control, col_display = st.columns()
 
 with col_control:
     st.subheader("⚙️ Control Settings")
@@ -170,7 +171,6 @@ with col_control:
                          "Dynamic Programming (Held-Karp Exact)", 
                          "Backtracking (Exhaustive Search Exact)"])
     
-    # Reset simulation automatically if strategy is changed mid-run
     if algo != st.session_state.previous_algo:
         st.session_state.sim_running = False
         st.session_state.current_step = 1
@@ -193,7 +193,7 @@ if trigger_sim and run_valid:
     st.session_state.sim_running = True
     st.session_state.current_step = 1
 
-# Calculate Active Route Profile
+# Calculate Active Selection Strategy Path
 static_route = []
 total_static_dist = 0.0
 execution_time_ms = 0.0
@@ -216,7 +216,7 @@ with col_display:
     st.subheader("📊 Algorithmic Benchmarks")
     m_col1, m_col2 = st.columns(2)
     
-    if run_valid:
+    if run_valid and static_route:
         m_col1.metric(label="Calculated Loop Distance", value=f"{total_static_dist:.2f} km")
         m_col2.metric(label="Compute Processing Velocity", value=f"{execution_time_ms:.2f} ms")
     else:
@@ -226,8 +226,8 @@ with col_display:
     map_placeholder = st.empty()
     status_placeholder = st.empty()
 
-    if run_valid:
-        # STATE A: Static Render View
+    if run_valid and static_route:
+        # STATE A: Static Map View
         if not st.session_state.sim_running:
             map_data = [{
                 "Order": idx + 1, 
@@ -240,13 +240,12 @@ with col_display:
             fig = px.line_mapbox(df, lat="Latitude", lon="Longitude", hover_name="City", zoom=3, height=550)
             fig.update_layout(mapbox_style="carto-positron", margin={"r":0,"t":0,"l":0,"b":0})
             
-            map_placeholder.plotly_chart(fig, use_container_width=True, key=f"static_{algo}_{len(selected_cities)}")
+            map_placeholder.plotly_chart(fig, use_container_width=True, key=f"static_{algo}_{len(selected_cities)}_{start_city}")
             status_placeholder.success(f"Static path compiled via {algo}. Press 'Launch Live Simulation' to animate.")
 
-        # STATE B: Live Simulation Frame Loop (FIXED ROUTING PATH GENERATOR)
+        # STATE B: Live Simulation Map View
         else:
             while st.session_state.current_step <= len(static_route):
-                # FIXED: Force the subroute window slice to track the specific selected algorithm's route sequence
                 current_sub_route = static_route[:st.session_state.current_step]
                 
                 frame_data = [{
@@ -272,9 +271,9 @@ with col_display:
             
             st.session_state.sim_running = False
             st.session_state.current_step = 1
-            st.rerun()  # Forces a clean redraw loop pass once simulation resets
+            st.rerun()
     else:
-        status_placeholder.warning("Reduce node target counts in the sidebar workspace selection to load charts.")
+        status_placeholder.warning("Adjust node workspace parameters in the sidebar to populate views.")
 
     # -------------------------------------------------------------
     # BACKGROUND COMPARISON MATRIX
@@ -282,11 +281,13 @@ with col_display:
     st.markdown("---")
     st.subheader("🏁 Real-time Strategy Performance Comparison Matrix")
     
+    # 1. Greedy Run
     t0 = time.perf_counter()
     r_matrix_gr = solve_greedy()
     d_gr = route_distance(r_matrix_gr, ACTIVE_CITIES)
     ms_gr = (time.perf_counter() - t0) * 1000
     
+    # 2. Dynamic Run
     if len(selected_cities) <= 15:
         t0 = time.perf_counter()
         r_matrix_dp = solve_dynamic()
@@ -295,6 +296,7 @@ with col_display:
     else:
         d_dp, ms_dp = "Skipped (RAM Constraint)", "Timeout"
         
+    # 3. Backtracking Run
     if len(selected_cities) <= 10:
         t0 = time.perf_counter()
         r_matrix_bt = solve_backtracking()
