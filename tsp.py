@@ -50,6 +50,8 @@ if "sim_running" not in st.session_state:
     st.session_state.sim_running = False
 if "current_step" not in st.session_state:
     st.session_state.current_step = 1
+if "previous_algo" not in st.session_state:
+    st.session_state.previous_algo = ""
 
 # -------------------------------------------------------------
 # SIDEBAR: DYNAMIC CITY SELECTION
@@ -168,6 +170,12 @@ with col_control:
                          "Dynamic Programming (Held-Karp Exact)", 
                          "Backtracking (Exhaustive Search Exact)"])
     
+    # Reset simulation automatically if strategy is changed mid-run
+    if algo != st.session_state.previous_algo:
+        st.session_state.sim_running = False
+        st.session_state.current_step = 1
+        st.session_state.previous_algo = algo
+    
     run_valid = True
     if algo == "Dynamic Programming (Held-Karp Exact)" and len(selected_cities) > 15:
         st.error("⚠️ Dynamic Programming is restricted to 15 cities maximum.")
@@ -185,7 +193,7 @@ if trigger_sim and run_valid:
     st.session_state.sim_running = True
     st.session_state.current_step = 1
 
-# Calculate Active Selection Strategy
+# Calculate Active Route Profile
 static_route = []
 total_static_dist = 0.0
 execution_time_ms = 0.0
@@ -219,8 +227,8 @@ with col_display:
     status_placeholder = st.empty()
 
     if run_valid:
+        # STATE A: Static Render View
         if not st.session_state.sim_running:
-            # FIX: Unpacked coordinates cleanly into raw floats to bypass Plotly rendering cache bugs
             map_data = [{
                 "Order": idx + 1, 
                 "City": city, 
@@ -229,18 +237,18 @@ with col_display:
             } for idx, city in enumerate(static_route)]
             
             df = pd.DataFrame(map_data)
-            fig = px.line_mapbox(df, lat="Latitude", lon="Longitude", hover_name="City", zoom=3, height=500)
+            fig = px.line_mapbox(df, lat="Latitude", lon="Longitude", hover_name="City", zoom=3, height=550)
             fig.update_layout(mapbox_style="carto-positron", margin={"r":0,"t":0,"l":0,"b":0})
             
-            # The dynamic combined key ensures instantaneous mapping canvas updates
-            map_placeholder.plotly_chart(fig, use_container_width=True, key=f"map_{algo}_{len(selected_cities)}_{start_city}")
-            status_placeholder.success(f"Static path compiled via {algo}. Select 'Launch Live Simulation' to animate tracking cycles.")
+            map_placeholder.plotly_chart(fig, use_container_width=True, key=f"static_{algo}_{len(selected_cities)}")
+            status_placeholder.success(f"Static path compiled via {algo}. Press 'Launch Live Simulation' to animate.")
 
+        # STATE B: Live Simulation Frame Loop (FIXED ROUTING PATH GENERATOR)
         else:
             while st.session_state.current_step <= len(static_route):
+                # FIXED: Force the subroute window slice to track the specific selected algorithm's route sequence
                 current_sub_route = static_route[:st.session_state.current_step]
                 
-                # FIX: Unpacked coordinates for the animation frame loop
                 frame_data = [{
                     "Order": idx + 1, 
                     "City": c, 
@@ -249,13 +257,13 @@ with col_display:
                 } for idx, c in enumerate(current_sub_route)]
                 
                 df_frame = pd.DataFrame(frame_data)
-                fig_frame = px.line_mapbox(df_frame, lat="Latitude", lon="Longitude", hover_name="City", zoom=3, height=500)
+                fig_frame = px.line_mapbox(df_frame, lat="Latitude", lon="Longitude", hover_name="City", zoom=3, height=550)
                 fig_frame.update_layout(mapbox_style="carto-positron", margin={"r":0,"t":0,"l":0,"b":0})
                 
                 if st.session_state.current_step < len(static_route):
-                    status_placeholder.info(f"✈️ Route leg dispatched: **{current_sub_route[-1]}**")
+                    status_placeholder.info(f"✈️ Leg dispatched: **{current_sub_route[-1]}**")
                 else:
-                    status_placeholder.success(f"🏁 Circuit finalized! Returned back to hub root: **{start_city}**")
+                    status_placeholder.success(f"🏁 Circuit finalized! Returned back to starting hub: **{start_city}**")
                     
                 map_placeholder.plotly_chart(fig_frame, use_container_width=True, key=f"sim_{algo}_{st.session_state.current_step}")
                 
@@ -264,6 +272,7 @@ with col_display:
             
             st.session_state.sim_running = False
             st.session_state.current_step = 1
+            st.rerun()  # Forces a clean redraw loop pass once simulation resets
     else:
         status_placeholder.warning("Reduce node target counts in the sidebar workspace selection to load charts.")
 
@@ -273,13 +282,11 @@ with col_display:
     st.markdown("---")
     st.subheader("🏁 Real-time Strategy Performance Comparison Matrix")
     
-    # 1. Run Greedy Matrix Profile
     t0 = time.perf_counter()
     r_matrix_gr = solve_greedy()
     d_gr = route_distance(r_matrix_gr, ACTIVE_CITIES)
     ms_gr = (time.perf_counter() - t0) * 1000
     
-    # 2. Run Dynamic Matrix Profile
     if len(selected_cities) <= 15:
         t0 = time.perf_counter()
         r_matrix_dp = solve_dynamic()
@@ -288,7 +295,6 @@ with col_display:
     else:
         d_dp, ms_dp = "Skipped (RAM Constraint)", "Timeout"
         
-    # 3. Run Backtracking Matrix Profile
     if len(selected_cities) <= 10:
         t0 = time.perf_counter()
         r_matrix_bt = solve_backtracking()
