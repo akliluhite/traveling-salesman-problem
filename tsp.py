@@ -2,15 +2,29 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
+import plotly.graph_objects as go
 import time
 
-# App Configuration
-st.set_page_config(page_title="Ultimate TSP Simulation Dashboard", layout="wide")
+# -------------------------------------------------------------
+# PAGE CONFIG
+# -------------------------------------------------------------
+st.set_page_config(
+    page_title="Ultimate TSP Simulation Dashboard",
+    layout="wide"
+)
 
+# -------------------------------------------------------------
+# TITLE
+# -------------------------------------------------------------
 st.title("🧬 The Ultimate Traveling Salesman Dashboard")
-st.write("Compare computational complexity, accuracy benchmarks, and run real-time flight route simulations across Europe.")
+st.write(
+    "Compare computational complexity, accuracy benchmarks, "
+    "and run real-time flight route simulations across Europe."
+)
 
-# Expanded Master Database of Cities
+# -------------------------------------------------------------
+# MASTER DATABASE OF CITIES
+# -------------------------------------------------------------
 MASTER_CITIES = {
     'Paris (France)': (48.8566, 2.3522),
     'Brussels (Belgium)': (50.8503, 4.3517),
@@ -28,192 +42,464 @@ MASTER_CITIES = {
     'Warsaw (Poland)': (52.2297, 21.0122)
 }
 
-# Core Math Helpers
+# -------------------------------------------------------------
+# DISTANCE FUNCTIONS
+# -------------------------------------------------------------
 def distance(c1, c2, city_dict):
-    """Calculates geodesic distance using the Haversine formula."""
+    """
+    Haversine distance between two cities.
+    """
     lat1, lon1 = np.radians(city_dict[c1])
     lat2, lon2 = np.radians(city_dict[c2])
-    dlat, dlon = lat2 - lat1, lon2 - lon1
-    a = np.sin(dlat/2)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon/2)**2
+
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+
+    a = (
+        np.sin(dlat / 2) ** 2
+        + np.cos(lat1) * np.cos(lat2) * np.sin(dlon / 2) ** 2
+    )
+
     return 6371.0 * (2 * np.arcsin(np.sqrt(a)))
 
-def route_distance(r, city_dict):
-    """Calculates total closed loop sequence distance."""
-    if not r or len(r) < 2:
-        return 0.0
-    return sum(distance(r[i], r[i+1], city_dict) for i in range(len(r)-1))
+
+def route_distance(route, city_dict):
+    """
+    Total route distance.
+    """
+    if not route or len(route) < 2:
+        return 0
+
+    total = 0
+
+    for i in range(len(route) - 1):
+        total += distance(route[i], route[i + 1], city_dict)
+
+    return total
+
 
 # -------------------------------------------------------------
-# SESSION STATE INITIALIZATION
+# SESSION STATE
 # -------------------------------------------------------------
 if "sim_running" not in st.session_state:
     st.session_state.sim_running = False
+
 if "current_step" not in st.session_state:
     st.session_state.current_step = 1
+
 if "previous_algo" not in st.session_state:
     st.session_state.previous_algo = ""
 
+
 # -------------------------------------------------------------
-# SIDEBAR: DYNAMIC CITY SELECTION
+# SIDEBAR
 # -------------------------------------------------------------
 with st.sidebar:
+
     st.header("🗺️ Network Workspace")
+
     selected_cities = st.multiselect(
         "Select Cities to Include in Route:",
         options=list(MASTER_CITIES.keys()),
         default=list(MASTER_CITIES.keys())[:7]
     )
-    
-    if len(selected_cities) < 3:
-        st.error("Please select at least 3 cities to map a closed-loop route.")
-        st.stop()
-        
-    start_city = st.selectbox("Select Starting Hub:", options=selected_cities)
 
-ACTIVE_CITIES = {k: MASTER_CITIES[k] for k in selected_cities}
-cities_list = list(ACTIVE_CITIES.keys())
-other_cities = [c for c in cities_list if c != start_city]
+    if len(selected_cities) < 3:
+        st.error("Please select at least 3 cities.")
+        st.stop()
+
+    start_city = st.selectbox(
+        "Select Starting Hub:",
+        options=selected_cities
+    )
+
 
 # -------------------------------------------------------------
-# TSP SOLVER CORE IMPLEMENTATIONS
+# ACTIVE CITY SET
+# -------------------------------------------------------------
+ACTIVE_CITIES = {
+    city: MASTER_CITIES[city]
+    for city in selected_cities
+}
+
+cities_list = list(ACTIVE_CITIES.keys())
+
+other_cities = [
+    city for city in cities_list
+    if city != start_city
+]
+
+
+# -------------------------------------------------------------
+# GREEDY SOLVER
 # -------------------------------------------------------------
 def solve_greedy():
+
     route = [start_city]
+
     unvisited = other_cities.copy()
+
     while unvisited:
-        closest = min(unvisited, key=lambda c: distance(route[-1], c, ACTIVE_CITIES))
+
+        closest = min(
+            unvisited,
+            key=lambda city: distance(
+                route[-1],
+                city,
+                ACTIVE_CITIES
+            )
+        )
+
         route.append(closest)
+
         unvisited.remove(closest)
+
     route.append(start_city)
+
     return route
 
-def solve_dynamic():
-    n = len(cities_list)
-    if n > 15:
-        return None
-        
-    mapping = {city: i for i, city in enumerate(cities_list)}
-    inv_mapping = {i: city for i, city in enumerate(cities_list)}
-    start_idx = mapping[start_city]
-    
-    dist_matrix = np.zeros((n, n))
-    for i in range(n):
-        for j in range(n):
-            dist_matrix[i][j] = distance(inv_mapping[i], inv_mapping[j], ACTIVE_CITIES)
-            
-    memo = {}
-    
-    def hk_solve(mask, u):
-        if mask == (1 << n) - 1:
-            return dist_matrix[u][start_idx], [start_idx]
-        if (mask, u) in memo:
-            return memo[(mask, u)]
-            
-        ans = float('inf')
-        best_path = []
-        
-        for v in range(n):
-            if not (mask & (1 << v)):
-                cost, path = hk_solve(mask | (1 << v), v)
-                total_cost = dist_matrix[u][v] + cost
-                if total_cost < ans:
-                    ans = total_cost
-                    best_path = [v] + path
-                    
-        memo[(mask, u)] = (ans, best_path)
-        return memo[(mask, u)]
-        
-    _, path_indices = hk_solve(1 << start_idx, start_idx)
-    full_path = [start_city] + [inv_mapping[i] for i in path_indices]
-    return full_path
-
-def solve_backtracking():
-    n = len(cities_list)
-    if n > 10:
-        return None
-        
-    tracker = {"best_dist": float('inf'), "best_path": []}
-    
-    def backtrack(curr_city, visited, current_path, current_dist):
-        if current_dist >= tracker["best_dist"]:
-            return
-            
-        if len(visited) == n:
-            final_dist = current_dist + distance(curr_city, start_city, ACTIVE_CITIES)
-            if final_dist < tracker["best_dist"]:
-                tracker["best_dist"] = final_dist
-                tracker["best_path"] = list(current_path) + [start_city]
-            return
-            
-        for nxt_city in other_cities:
-            if nxt_city not in visited:
-                visited.add(nxt_city)
-                leg_dist = distance(curr_city, nxt_city, ACTIVE_CITIES)
-                backtrack(nxt_city, visited, current_path + [nxt_city], current_dist + leg_dist)
-                visited.remove(nxt_city)
-                
-    backtrack(start_city, {start_city}, [start_city], 0.0)
-    return tracker["best_path"]
 
 # -------------------------------------------------------------
-# LAYOUT PARTITIONING & CONTROLS (FIXED RATIO INDICES)
+# DYNAMIC PROGRAMMING SOLVER
+# -------------------------------------------------------------
+def solve_dynamic():
+
+    n = len(cities_list)
+
+    if n > 15:
+        return None
+
+    mapping = {
+        city: i
+        for i, city in enumerate(cities_list)
+    }
+
+    inv_mapping = {
+        i: city
+        for i, city in enumerate(cities_list)
+    }
+
+    start_idx = mapping[start_city]
+
+    dist_matrix = np.zeros((n, n))
+
+    for i in range(n):
+        for j in range(n):
+            dist_matrix[i][j] = distance(
+                inv_mapping[i],
+                inv_mapping[j],
+                ACTIVE_CITIES
+            )
+
+    memo = {}
+
+    def hk(mask, u):
+
+        if mask == (1 << n) - 1:
+            return dist_matrix[u][start_idx], [start_idx]
+
+        if (mask, u) in memo:
+            return memo[(mask, u)]
+
+        best_cost = float('inf')
+        best_path = []
+
+        for v in range(n):
+
+            if not (mask & (1 << v)):
+
+                cost, path = hk(mask | (1 << v), v)
+
+                total = dist_matrix[u][v] + cost
+
+                if total < best_cost:
+                    best_cost = total
+                    best_path = [v] + path
+
+        memo[(mask, u)] = (best_cost, best_path)
+
+        return memo[(mask, u)]
+
+    _, path_indices = hk(1 << start_idx, start_idx)
+
+    final_route = [start_city]
+
+    for idx in path_indices:
+        final_route.append(inv_mapping[idx])
+
+    return final_route
+
+
+# -------------------------------------------------------------
+# BACKTRACKING SOLVER
+# -------------------------------------------------------------
+def solve_backtracking():
+
+    n = len(cities_list)
+
+    if n > 10:
+        return None
+
+    best = {
+        "dist": float('inf'),
+        "path": []
+    }
+
+    def backtrack(curr, visited, path, curr_dist):
+
+        if curr_dist >= best["dist"]:
+            return
+
+        if len(visited) == n:
+
+            total = curr_dist + distance(
+                curr,
+                start_city,
+                ACTIVE_CITIES
+            )
+
+            if total < best["dist"]:
+
+                best["dist"] = total
+                best["path"] = path + [start_city]
+
+            return
+
+        for nxt in other_cities:
+
+            if nxt not in visited:
+
+                visited.add(nxt)
+
+                leg = distance(
+                    curr,
+                    nxt,
+                    ACTIVE_CITIES
+                )
+
+                backtrack(
+                    nxt,
+                    visited,
+                    path + [nxt],
+                    curr_dist + leg
+                )
+
+                visited.remove(nxt)
+
+    backtrack(
+        start_city,
+        {start_city},
+        [start_city],
+        0
+    )
+
+    return best["path"]
+
+
+# -------------------------------------------------------------
+# MAIN LAYOUT
 # -------------------------------------------------------------
 col_control, col_display = st.columns([1, 2])
 
+# -------------------------------------------------------------
+# CONTROLS
+# -------------------------------------------------------------
 with col_control:
+
     st.subheader("⚙️ Control Settings")
-    algo = st.selectbox("Choose Active Evaluation Strategy:", 
-                        ["Greedy (Fast / Heuristic)", 
-                         "Dynamic Programming (Held-Karp Exact)", 
-                         "Backtracking (Exhaustive Search Exact)"])
-    
+
+    algo = st.selectbox(
+        "Choose Active Evaluation Strategy:",
+        [
+            "Greedy (Fast / Heuristic)",
+            "Dynamic Programming (Held-Karp Exact)",
+            "Backtracking (Exhaustive Search Exact)"
+        ]
+    )
+
     if algo != st.session_state.previous_algo:
+
         st.session_state.sim_running = False
         st.session_state.current_step = 1
         st.session_state.previous_algo = algo
-    
-    run_valid = True
-    if algo == "Dynamic Programming (Held-Karp Exact)" and len(selected_cities) > 15:
-        st.error("⚠️ Dynamic Programming is restricted to 15 cities maximum.")
-        run_valid = False
-    elif algo == "Backtracking (Exhaustive Search Exact)" and len(selected_cities) > 10:
-        st.error("⚠️ Backtracking is locked down above 10 cities.")
-        run_valid = False
-        
-    st.markdown("---")
-    st.subheader("🎬 Simulation Control")
-    speed = st.slider("Step intervals (seconds):", min_value=0.05, max_value=2.0, value=0.3, step=0.05)
-    trigger_sim = st.button("▶️ Launch Live Simulation", disabled=not run_valid)
 
+    run_valid = True
+
+    if (
+        algo == "Dynamic Programming (Held-Karp Exact)"
+        and len(selected_cities) > 15
+    ):
+        st.error("⚠️ Dynamic Programming max = 15 cities.")
+        run_valid = False
+
+    if (
+        algo == "Backtracking (Exhaustive Search Exact)"
+        and len(selected_cities) > 10
+    ):
+        st.error("⚠️ Backtracking max = 10 cities.")
+        run_valid = False
+
+    st.markdown("---")
+
+    st.subheader("🎬 Simulation Control")
+
+    speed = st.slider(
+        "Step Interval (seconds)",
+        0.05,
+        2.0,
+        0.3,
+        0.05
+    )
+
+    trigger_sim = st.button(
+        "▶️ Launch Live Simulation",
+        disabled=not run_valid
+    )
+
+
+# -------------------------------------------------------------
+# RUN SIMULATION
+# -------------------------------------------------------------
 if trigger_sim and run_valid:
+
     st.session_state.sim_running = True
     st.session_state.current_step = 1
 
-static_route = []
-total_static_dist = 0.0
-execution_time_ms = 0.0
+
+# -------------------------------------------------------------
+# SOLVE ROUTE
+# -------------------------------------------------------------
+route = []
+total_dist = 0
+execution_ms = 0
 
 if run_valid:
-    start_time = time.perf_counter()
+
+    start = time.perf_counter()
+
     if algo == "Greedy (Fast / Heuristic)":
-        static_route = solve_greedy()
+        route = solve_greedy()
+
     elif algo == "Dynamic Programming (Held-Karp Exact)":
-        static_route = solve_dynamic()
+        route = solve_dynamic()
+
     else:
-        static_route = solve_backtracking()
-    execution_time_ms = (time.perf_counter() - start_time) * 1000
-    total_static_dist = route_distance(static_route, ACTIVE_CITIES)
+        route = solve_backtracking()
+
+    execution_ms = (time.perf_counter() - start) * 1000
+
+    total_dist = route_distance(route, ACTIVE_CITIES)
+
 
 # -------------------------------------------------------------
-# GRAPHICS AND MAIN RENDERING
+# DISPLAY PANEL
 # -------------------------------------------------------------
 with col_display:
+
     st.subheader("📊 Algorithmic Benchmarks")
-    m_col1, m_col2 = st.columns(2)
-    
-    if run_valid and static_route:
-        m_col1.metric(label="Calculated Loop Distance", value=f"{total_static_dist:.2f} km")
-        m_col2.metric(label="Compute Processing Velocity", value=f"{execution_time_ms:.2f} ms")
+
+    c1, c2 = st.columns(2)
+
+    if route:
+
+        c1.metric(
+            "Calculated Loop Distance",
+            f"{total_dist:.2f} km"
+        )
+
+        c2.metric(
+            "Compute Processing Velocity",
+            f"{execution_ms:.2f} ms"
+        )
+
     else:
-        m_col1.metric(label="Calculated Loop Distance", value="N/A")
-        m_col2.metric(label="Compute Processing Velocity", value="N/A")
+
+        c1.metric("Calculated Loop Distance", "N/A")
+        c2.metric("Compute Processing Velocity", "N/A")
+
+    st.markdown("---")
+
+    st.subheader("🗺️ Live Route Map")
+
+    # ---------------------------------------------------------
+    # FIXED MAP CODE
+    # ---------------------------------------------------------
+    if route:
+
+        latitudes = []
+        longitudes = []
+        labels = []
+
+        for city in route:
+
+            lat, lon = ACTIVE_CITIES[city]
+
+            latitudes.append(lat)
+            longitudes.append(lon)
+            labels.append(city)
+
+        df = pd.DataFrame({
+            "city": labels,
+            "lat": latitudes,
+            "lon": longitudes
+        })
+
+        fig = go.Figure()
+
+        # Route lines
+        fig.add_trace(
+            go.Scattermapbox(
+                lat=latitudes,
+                lon=longitudes,
+                mode="lines+markers",
+                marker=dict(
+                    size=12
+                ),
+                text=labels,
+                line=dict(
+                    width=4
+                ),
+                hoverinfo="text"
+            )
+        )
+
+        # Map layout
+        fig.update_layout(
+            mapbox_style="open-street-map",
+            mapbox_zoom=3.4,
+            mapbox_center={
+                "lat": 50,
+                "lon": 10
+            },
+            height=700,
+            margin={
+                "r": 0,
+                "t": 0,
+                "l": 0,
+                "b": 0
+            }
+        )
+
+        st.plotly_chart(
+            fig,
+            use_container_width=True
+        )
+
+        # -----------------------------------------------------
+        # ROUTE TABLE
+        # -----------------------------------------------------
+        st.markdown("### 📍 Final Route")
+
+        route_table = pd.DataFrame({
+            "Step": list(range(1, len(route) + 1)),
+            "City": route
+        })
+
+        st.dataframe(
+            route_table,
+            use_container_width=True
+        )
+
+    else:
+
+        st.warning("No route generated.")
