@@ -236,7 +236,6 @@ with col_display:
         display_route = static_route
 
     if run_valid and display_route:
-        # Create mapping coordinates list
         plot_records = []
         for idx, city in enumerate(display_route):
             lat, lon = ACTIVE_CITIES[city]
@@ -249,7 +248,6 @@ with col_display:
             
         df_plot = pd.DataFrame(plot_records)
         
-        # Plotly Express modern map rendering
         fig = px.line_map(
             df_plot, 
             lat="Latitude", 
@@ -267,3 +265,4 @@ with col_display:
         )
         st.plotly_chart(fig, use_container_width=True)
     else:
+        st.info("Please adjust city selections or lower network bounds to render maps.")
