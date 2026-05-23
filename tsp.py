@@ -185,13 +185,21 @@ with col_control:
     speed = st.slider("Step intervals (seconds):", min_value=0.05, max_value=2.0, value=0.3, step=0.05)
     trigger_sim = st.button("▶️ Launch Live Simulation", disabled=not run_valid)
 
-if trigger_sim and run_valid:
-    st.session_state.sim_running = True
-    st.session_state.current_step = 1
-
-static_route = []
-total_static_dist = 0.0
-execution_time_ms = 0.0
+    # NEW FEATURE: MANUALLY BUILT ROUTE SANDBOX
+    st.markdown("---")
+    st.subheader("🎮 Human Intuition Sandbox")
+    st.caption("Try to build a shorter loop yourself by picking the sequence order!")
+    
+    manual_sequence = st.multiselect(
+        "Build your custom path sequence:",
+        options=other_cities,
+        help="Select cities in the exact order you wish to visit them."
+    )
+    
+    # Complete the loop automatically
+    manual_route = [start_city] + manual_sequence
+    if len(manual_sequence) == len(other_cities):
+        manual_route.append(start_city)
 
 if run_valid:
     start_time = time.perf_counter()
@@ -209,99 +217,43 @@ if run_valid:
 # -------------------------------------------------------------
 with col_display:
     st.subheader("📊 Algorithmic Benchmarks")
-    m_col1, m_col2 = st.columns(2)
+    m_col1, m_col2, m_col3 = st.columns(3)
     
     if run_valid and static_route:
         m_col1.metric(label="Calculated Loop Distance", value=f"{total_static_dist:.2f} km")
         m_col2.metric(label="Compute Processing Velocity", value=f"{execution_time_ms:.2f} ms")
-    else:
-        m_col1.metric(label="Calculated Loop Distance", value="N/A")
-        m_col2.metric(label="Compute Processing Velocity", value="Oversized Set")
-    
-    map_placeholder = st.empty()
-    status_placeholder = st.empty()
-
-    if run_valid and static_route:
-        if not st.session_state.sim_running:
-            map_data = []
-            for idx, city in enumerate(static_route):
-                map_data.append({
-                    "Order": idx + 1, 
-                    "City": city, 
-                    "Latitude": ACTIVE_CITIES[city][0], 
-                    "Longitude": ACTIVE_CITIES[city][1]
-                })
-            
-            df = pd.DataFrame(map_data)
-            fig = px.line_mapbox(df, lat="Latitude", lon="Longitude", hover_name="City", zoom=3, height=550)
-            fig.update_layout(mapbox_style="carto-positron", margin={"r":0,"t":0,"l":0,"b":0})
-            
-            map_placeholder.plotly_chart(fig, use_container_width=True, key=f"static_{algo}_{len(selected_cities)}_{start_city}")
-            status_placeholder.success(f"Static path compiled via {algo}. Press 'Launch Live Simulation' to animate.")
-
-        else:
-            while st.session_state.current_step <= len(static_route):
-                current_sub_route = static_route[:st.session_state.current_step]
-                
-                frame_data = []
-                for idx, c in enumerate(current_sub_route):
-                    frame_data.append({
-                        "Order": idx + 1, 
-                        "City": c, 
-                        "Latitude": ACTIVE_CITIES[c][0], 
-                        "Longitude": ACTIVE_CITIES[c][1]
-                    })
-                
-                df_frame = pd.DataFrame(frame_data)
-                fig_frame = px.line_mapbox(df_frame, lat="Latitude", lon="Longitude", hover_name="City", zoom=3, height=550)
-                fig_frame.update_layout(mapbox_style="carto-positron", margin={"r":0,"t":0,"l":0,"b":0})
-                
-                if st.session_state.current_step < len(static_route):
-                    status_placeholder.info(f"✈️ Leg dispatched: **{current_sub_route[-1]}**")
-                else:
-                    status_placeholder.success(f"🏁 Circuit finalized! Returned back to starting hub: **{start_city}**")
-                    
-                map_placeholder.plotly_chart(fig_frame, use_container_width=True, key=f"sim_{algo}_{st.session_state.current_step}")
-                
-                st.session_state.current_step += 1
-                time.sleep(speed)
-            
-            st.session_state.sim_running = False
-            st.session_state.current_step = 1
-            st.rerun()
-    else:
-        status_placeholder.warning("Adjust node workspace parameters in the sidebar to populate views.")
-
-    # -------------------------------------------------------------
-    # BACKGROUND COMPARISON MATRIX
-    # -------------------------------------------------------------
-    st.markdown("---")
-    st.subheader("🏁 Real-time Strategy Performance Comparison Matrix")
-    
-    t0 = time.perf_counter()
-    r_matrix_gr = solve_greedy()
-    d_gr = route_distance(r_matrix_gr, ACTIVE_CITIES)
-    ms_gr = (time.perf_counter() - t0) * 1000
-    
-    if len(selected_cities) <= 15:
-        t0 = time.perf_counter()
-        r_matrix_dp = solve_dynamic()
-        d_dp = route_distance(r_matrix_dp, ACTIVE_CITIES) if r_matrix_dp else float('inf')
-        ms_dp = (time.perf_counter() - t0) * 1000
-    else:
-        d_dp, ms_dp = "Skipped (RAM Constraint)", "Timeout"
         
-    if len(selected_cities) <= 10:
-        t0 = time.perf_counter()
-        r_matrix_bt = solve_backtracking()
-        d_bt = route_distance(r_matrix_bt, ACTIVE_CITIES) if r_matrix_bt else float('inf')
-        ms_bt = (time.perf_counter() - t0) * 1000
+        # Human vs Machine comparison metric
+        if len(manual_sequence) == len(other_cities):
+            manual_dist = route_distance(manual_route, ACTIVE_CITIES)
+            efficiency = ((manual_dist - total_static_dist) / total_static_dist) * 100
+            m_col3.metric(
+                label="Your Sandbox Distance", 
+                value=f"{manual_dist:.2f} km", 
+                delta=f"{efficiency:.1f}% Longer than Algo",
+                delta_color="inverse"
+            )
+        else:
+            m_col3.metric(label="Your Sandbox Distance", value="Incomplete Path", delta="Add all cities")
     else:
-        d_bt, ms_bt = "Skipped (CPU Lock Risk)", "Timeout"
+        m_col1.metric(label="Status", value="Error")
 
-    comparison_data = {
-        "Strategy Engine": ["Greedy (Nearest Neighbor)", "Dynamic Programming (Held-Karp)", "Backtracking (Exhaustive)"],
-        "Calculated Loop Distance": [f"{d_gr:.2f} km", f"{d_dp:.2f} km" if isinstance(d_dp, float) else d_dp, f"{d_bt:.2f} km" if isinstance(d_bt, float) else d_bt],
-        "Execution Overhead Time": [f"{ms_gr:.2f} ms", f"{ms_dp:.2f} ms" if isinstance(ms_dp, float) else ms_dp, f"{ms_bt:.2f} ms" if isinstance(ms_bt, float) else ms_bt]
-    }
-    st.table(pd.DataFrame(comparison_data))
+    # -------------------------------------------------------------
+    # LIVE SIMULATION & MAP VISUALIZATION ENGINE
+    # -------------------------------------------------------------
+    st.subheader("🗺️ Interactive Route Vector Mapping")
+    
+    # Handle Live Simulation Progression
+    if st.session_state.sim_running and static_route:
+        if st.session_state.current_step < len(static_route):
+            display_route = static_route[:st.session_state.current_step + 1]
+            st.session_state.current_step += 1
+            time.sleep(speed)
+            st.rerun()
+        else:
+            st.session_state.sim_running = False
+            display_route = static_route
+    else:
+        display_route = static_route
+
+    # Generate DataFrames for plotting
