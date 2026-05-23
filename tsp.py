@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import plotly.graph_objects as go
+import plotly.express as px
 import time
 
 # App Configuration
@@ -28,7 +28,7 @@ MASTER_CITIES = {
     'Warsaw (Poland)': (52.2297, 21.0122)
 }
 
-# Core Math Helpers
+# Core Math Helpers - FIXED: Proper tuple indexing [0] and [1]
 def distance(c1, c2, city_dict):
     """Calculates geodesic distance using the Haversine formula."""
     lat1, lon1 = np.radians(city_dict[c1][0]), np.radians(city_dict[c1][1])
@@ -188,7 +188,7 @@ with col_control:
         st.session_state.sim_running = True
         st.session_state.current_step = 1
 
-    trigger_sim = st.button("▶️ Launch Live Simulation", disabled=not run_valid, on_click=start_simulation)
+    st.button("▶️ Launch Live Simulation", disabled=not run_valid, on_click=start_simulation)
 
 static_route = []
 total_static_dist = 0.0
@@ -237,26 +237,28 @@ with col_display:
         display_route = static_route
 
     if run_valid and display_route:
-        # FIXED: Extract tuple indexes explicitly as individual floating elements
-        lats = [ACTIVE_CITIES[city][0] for city in display_route]
-        lons = [ACTIVE_CITIES[city][1] for city in display_route]
-        names = [f"{idx+1}. {city}" for idx, city in enumerate(display_route)]
+        # Build pandas DataFrame for modern Express layout rendering
+        plot_records = []
+        for idx, city in enumerate(display_route):
+            plot_records.append({
+                'City': city,
+                'Latitude': ACTIVE_CITIES[city][0],
+                'Longitude': ACTIVE_CITIES[city][1],
+                'Order': idx + 1,
+                'Marker Size': 15 if city == start_city else 10
+            })
+            
+        df_plot = pd.DataFrame(plot_records)
         
-        fig = go.Figure()
+        # FIXED: Using stable px.line_mapbox connected via open-street-map config
+        fig = px.line_mapbox(
+            df_plot, 
+            lat="Latitude", 
+            lon="Longitude", 
+            hover_name="City",
+            zoom=3,
+            height=550
+        )
         
-        # Plot lines and nodes safely using Scattermapbox
-        fig.add_trace(go.Scattermapbox(
-            lat=lats,
-            lon=lons,
-            mode='lines+markers',
-            marker=dict(size=11, color='#FF4B4B'),
-            line=dict(width=3, color='#FF4B4B'),
-            text=names,
-            hoverinfo='text',
-            name="TSP Path"
-        ))
-        
-        # FIXED: Correct tuple assignment indexing to prevent variable value crashes
-        start_lat = ACTIVE_CITIES[start_city][0]
-        start_lon = ACTIVE_CITIES[start_city][1]
-        
+        # Overlay city point markers on top of route paths
+        fig.add_scattermapbox(
