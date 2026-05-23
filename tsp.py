@@ -28,11 +28,11 @@ MASTER_CITIES = {
     'Warsaw (Poland)': (52.2297, 21.0122)
 }
 
-# Core Math Helpers - FIXED: Proper tuple indexing [0] and [1]
+# Core Math Helpers
 def distance(c1, c2, city_dict):
     """Calculates geodesic distance using the Haversine formula."""
-    lat1, lon1 = np.radians(city_dict[c1][0]), np.radians(city_dict[c1][1])
-    lat2, lon2 = np.radians(city_dict[c2][0]), np.radians(city_dict[c2][1])
+    lat1, lon1 = np.radians(city_dict[c1])
+    lat2, lon2 = np.radians(city_dict[c2])
     dlat, dlon = lat2 - lat1, lon2 - lon1
     a = np.sin(dlat/2)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon/2)**2
     return 6371.0 * (2 * np.arcsin(np.sqrt(a)))
@@ -156,7 +156,7 @@ def solve_backtracking():
     return tracker["best_path"]
 
 # -------------------------------------------------------------
-# LAYOUT PARTITIONING & CONTROLS
+# LAYOUT PARTITIONING & CONTROLS (FIXED RATIO INDICES)
 # -------------------------------------------------------------
 col_control, col_display = st.columns([1, 2])
 
@@ -184,11 +184,12 @@ with col_control:
     st.subheader("🎬 Simulation Control")
     speed = st.slider("Step intervals (seconds):", min_value=0.05, max_value=2.0, value=0.3, step=0.05)
     
-    def start_simulation():
+    # Using a button callback ensures session states refresh dynamically
+    def click_simulation():
         st.session_state.sim_running = True
         st.session_state.current_step = 1
 
-    st.button("▶️ Launch Live Simulation", disabled=not run_valid, on_click=start_simulation)
+    trigger_sim = st.button("▶️ Launch Live Simulation", disabled=not run_valid, on_click=click_simulation)
 
 static_route = []
 total_static_dist = 0.0
@@ -219,11 +220,10 @@ with col_display:
         m_col1.metric(label="Calculated Loop Distance", value="N/A")
         m_col2.metric(label="Compute Processing Velocity", value="N/A")
 
-    # -------------------------------------------------------------
-    # LIVE SIMULATION & MAP VISUALIZATION ENGINE
-    # -------------------------------------------------------------
+    st.markdown("---")
     st.subheader("🗺️ Interactive Route Vector Mapping")
-    
+
+    # Animation Frame Management Logic
     if st.session_state.sim_running and static_route:
         if st.session_state.current_step < len(static_route):
             display_route = static_route[:st.session_state.current_step + 1]
@@ -236,29 +236,20 @@ with col_display:
     else:
         display_route = static_route
 
+    # Safe data parsing engine
     if run_valid and display_route:
-        # Build pandas DataFrame for modern Express layout rendering
-        plot_records = []
-        for idx, city in enumerate(display_route):
-            plot_records.append({
-                'City': city,
-                'Latitude': ACTIVE_CITIES[city][0],
-                'Longitude': ACTIVE_CITIES[city][1],
-                'Order': idx + 1,
-                'Marker Size': 15 if city == start_city else 10
-            })
+        map_data = []
+        for city in display_route:
+            lat, lon = ACTIVE_CITIES[city]
+            map_data.append({"lat": lat, "lon": lon, "City": city})
             
-        df_plot = pd.DataFrame(plot_records)
+        df_map = pd.DataFrame(map_data)
         
-        # FIXED: Using stable px.line_mapbox connected via open-street-map config
-        fig = px.line_mapbox(
-            df_plot, 
-            lat="Latitude", 
-            lon="Longitude", 
-            hover_name="City",
-            zoom=3,
-            height=550
-        )
+        # Native safe open-source map engine layer
+        st.map(df_map, latitude="lat", longitude="lon", size=15)
         
-        # Overlay city point markers on top of route paths
-        fig.add_scattermapbox(
+        # Data representation frame log
+        with st.expander("📋 View Flight Route Sequence Sequence Log"):
+            st.dataframe(df_map[["City"]], use_container_width=True)
+    else:
+        st.info("Configure settings or select nodes to draw path maps.")
