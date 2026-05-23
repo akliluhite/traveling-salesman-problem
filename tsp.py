@@ -183,13 +183,11 @@ with col_control:
     st.markdown("---")
     st.subheader("🎬 Simulation Control")
     speed = st.slider("Step intervals (seconds):", min_value=0.05, max_value=2.0, value=0.3, step=0.05)
-    
-    # Using a button callback ensures session states refresh dynamically
-    def click_simulation():
-        st.session_state.sim_running = True
-        st.session_state.current_step = 1
+    trigger_sim = st.button("▶️ Launch Live Simulation", disabled=not run_valid)
 
-    trigger_sim = st.button("▶️ Launch Live Simulation", disabled=not run_valid, on_click=click_simulation)
+if trigger_sim and run_valid:
+    st.session_state.sim_running = True
+    st.session_state.current_step = 1
 
 static_route = []
 total_static_dist = 0.0
@@ -219,37 +217,3 @@ with col_display:
     else:
         m_col1.metric(label="Calculated Loop Distance", value="N/A")
         m_col2.metric(label="Compute Processing Velocity", value="N/A")
-
-    st.markdown("---")
-    st.subheader("🗺️ Interactive Route Vector Mapping")
-
-    # Animation Frame Management Logic
-    if st.session_state.sim_running and static_route:
-        if st.session_state.current_step < len(static_route):
-            display_route = static_route[:st.session_state.current_step + 1]
-            st.session_state.current_step += 1
-            time.sleep(speed)
-            st.rerun()
-        else:
-            st.session_state.sim_running = False
-            display_route = static_route
-    else:
-        display_route = static_route
-
-    # Safe data parsing engine
-    if run_valid and display_route:
-        map_data = []
-        for city in display_route:
-            lat, lon = ACTIVE_CITIES[city]
-            map_data.append({"lat": lat, "lon": lon, "City": city})
-            
-        df_map = pd.DataFrame(map_data)
-        
-        # Native safe open-source map engine layer
-        st.map(df_map, latitude="lat", longitude="lon", size=15)
-        
-        # Data representation frame log
-        with st.expander("📋 View Flight Route Sequence Sequence Log"):
-            st.dataframe(df_map[["City"]], use_container_width=True)
-    else:
-        st.info("Configure settings or select nodes to draw path maps.")
