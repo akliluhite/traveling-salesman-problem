@@ -159,7 +159,7 @@ def solve_backtracking():
 # -------------------------------------------------------------
 # LAYOUT PARTITIONING & CONTROLS
 # -------------------------------------------------------------
-col_control, col_display = st.columns([1, 2])
+col_control, col_display = st.columns()
 
 with col_control:
     st.subheader("⚙️ Control Settings")
@@ -238,27 +238,28 @@ with col_display:
         display_route = static_route
 
     if run_valid and display_route:
+        # FIXED: Correctly index tuple indices to extract explicit flat float lists
         lats = [ACTIVE_CITIES[city][0] for city in display_route]
         lons = [ACTIVE_CITIES[city][1] for city in display_route]
         names = [f"{idx+1}. {city}" for idx, city in enumerate(display_route)]
         
-        # Build layout explicitly using stable Graph Objects to bypass Token Requirements
         fig = go.Figure()
         
-        # Draw explicit lines connecting vertices 
+        # Plot route paths
         fig.add_trace(go.Scattermap(
             lat=lats,
             lon=lons,
             mode='lines+markers',
-            marker=go.scattermap.Marker(size=11, color='#FF4B4B'),
-            line=go.scattermap.Line(width=3, color='#FF4B4B'),
+            marker=dict(size=11, color='#FF4B4B'),
+            line=dict(width=3, color='#FF4B4B'),
             text=names,
             hoverinfo='text',
             name="TSP Route"
         ))
         
-        # Emphasize the Starting Hub 
+        # Emphasize origin hub location
         start_lat, start_lon = ACTIVE_CITIES[start_city]
         fig.add_trace(go.Scattermap(
             lat=[start_lat],
             lon=[start_lon],
+            mode='markers',
