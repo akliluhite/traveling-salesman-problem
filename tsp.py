@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import plotly.express as px
 import plotly.graph_objects as go
 import time
 
@@ -32,8 +31,8 @@ MASTER_CITIES = {
 # Core Math Helpers
 def distance(c1, c2, city_dict):
     """Calculates geodesic distance using the Haversine formula."""
-    lat1, lon1 = np.radians(city_dict[c1])
-    lat2, lon2 = np.radians(city_dict[c2])
+    lat1, lon1 = np.radians(city_dict[c1][0]), np.radians(city_dict[c1][1])
+    lat2, lon2 = np.radians(city_dict[c2][0]), np.radians(city_dict[c2][1])
     dlat, dlon = lat2 - lat1, lon2 - lon1
     a = np.sin(dlat/2)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon/2)**2
     return 6371.0 * (2 * np.arcsin(np.sqrt(a)))
@@ -159,7 +158,7 @@ def solve_backtracking():
 # -------------------------------------------------------------
 # LAYOUT PARTITIONING & CONTROLS
 # -------------------------------------------------------------
-col_control, col_display = st.columns()
+col_control, col_display = st.columns([1, 2])
 
 with col_control:
     st.subheader("⚙️ Control Settings")
@@ -238,14 +237,14 @@ with col_display:
         display_route = static_route
 
     if run_valid and display_route:
-        # FIXED: Explicitly split tuples into flat float arrays
+        # FIXED: Extract tuple indexes explicitly as individual floating elements
         lats = [ACTIVE_CITIES[city][0] for city in display_route]
         lons = [ACTIVE_CITIES[city][1] for city in display_route]
         names = [f"{idx+1}. {city}" for idx, city in enumerate(display_route)]
         
         fig = go.Figure()
         
-        # Plot route connecting paths using fully legacy-compatible mapbox layers
+        # Plot lines and nodes safely using Scattermapbox
         fig.add_trace(go.Scattermapbox(
             lat=lats,
             lon=lons,
@@ -254,11 +253,10 @@ with col_display:
             line=dict(width=3, color='#FF4B4B'),
             text=names,
             hoverinfo='text',
-            name="TSP Route"
+            name="TSP Path"
         ))
         
-        # Isolate Origin Base Hub Location
-        start_lat, start_lon = ACTIVE_CITIES[start_city][0], ACTIVE_CITIES[start_city][1]
-        fig.add_trace(go.Scattermapbox(
-            lat=[start_lat],
-            lon=[start_lon],
+        # FIXED: Correct tuple assignment indexing to prevent variable value crashes
+        start_lat = ACTIVE_CITIES[start_city][0]
+        start_lon = ACTIVE_CITIES[start_city][1]
+        
