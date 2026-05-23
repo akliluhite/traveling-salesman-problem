@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
+import plotly.graph_objects as go
 import time
 
 # App Configuration
@@ -184,7 +185,6 @@ with col_control:
     st.subheader("🎬 Simulation Control")
     speed = st.slider("Step intervals (seconds):", min_value=0.05, max_value=2.0, value=0.3, step=0.05)
     
-    # Session state update via callback to guarantee instant rerun on trigger click
     def start_simulation():
         st.session_state.sim_running = True
         st.session_state.current_step = 1
@@ -225,7 +225,6 @@ with col_display:
     # -------------------------------------------------------------
     st.subheader("🗺️ Interactive Route Vector Mapping")
     
-    # Process route simulation frame steps
     if st.session_state.sim_running and static_route:
         if st.session_state.current_step < len(static_route):
             display_route = static_route[:st.session_state.current_step + 1]
@@ -239,30 +238,27 @@ with col_display:
         display_route = static_route
 
     if run_valid and display_route:
-        plot_records = []
-        for idx, city in enumerate(display_route):
-            lat, lon = ACTIVE_CITIES[city]
-            plot_records.append({
-                'City': city,
-                'Latitude': lat,
-                'Longitude': lon,
-                'Route Order': idx + 1
-            })
-            
-        df_plot = pd.DataFrame(plot_records)
+        lats = [ACTIVE_CITIES[city][0] for city in display_route]
+        lons = [ACTIVE_CITIES[city][1] for city in display_route]
+        names = [f"{idx+1}. {city}" for idx, city in enumerate(display_route)]
         
-        fig = px.line_map(
-            df_plot, 
-            lat="Latitude", 
-            lon="Longitude", 
-            hover_name="City",
-            text="City",
-            zoom=3,
-            height=600
-        )
+        # Build layout explicitly using stable Graph Objects to bypass Token Requirements
+        fig = go.Figure()
         
-        fig.update_traces(line=dict(width=4, color="#FF4B4B"), marker=dict(size=12))
-        fig.update_layout(
-            map_style="open-street-map",
-            margin={"r":0,"t":0,"l":0,"b":0}
-        )
+        # Draw explicit lines connecting vertices 
+        fig.add_trace(go.Scattermap(
+            lat=lats,
+            lon=lons,
+            mode='lines+markers',
+            marker=go.scattermap.Marker(size=11, color='#FF4B4B'),
+            line=go.scattermap.Line(width=3, color='#FF4B4B'),
+            text=names,
+            hoverinfo='text',
+            name="TSP Route"
+        ))
+        
+        # Emphasize the Starting Hub 
+        start_lat, start_lon = ACTIVE_CITIES[start_city]
+        fig.add_trace(go.Scattermap(
+            lat=[start_lat],
+            lon=[start_lon],
