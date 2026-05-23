@@ -183,11 +183,13 @@ with col_control:
     st.markdown("---")
     st.subheader("🎬 Simulation Control")
     speed = st.slider("Step intervals (seconds):", min_value=0.05, max_value=2.0, value=0.3, step=0.05)
-    trigger_sim = st.button("▶️ Launch Live Simulation", disabled=not run_valid)
+    
+    # Session state update via callback to guarantee instant rerun on trigger click
+    def start_simulation():
+        st.session_state.sim_running = True
+        st.session_state.current_step = 1
 
-if trigger_sim and run_valid:
-    st.session_state.sim_running = True
-    st.session_state.current_step = 1
+    trigger_sim = st.button("▶️ Launch Live Simulation", disabled=not run_valid, on_click=start_simulation)
 
 static_route = []
 total_static_dist = 0.0
@@ -223,6 +225,7 @@ with col_display:
     # -------------------------------------------------------------
     st.subheader("🗺️ Interactive Route Vector Mapping")
     
+    # Process route simulation frame steps
     if st.session_state.sim_running and static_route:
         if st.session_state.current_step < len(static_route):
             display_route = static_route[:st.session_state.current_step + 1]
@@ -263,6 +266,3 @@ with col_display:
             map_style="open-street-map",
             margin={"r":0,"t":0,"l":0,"b":0}
         )
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.info("Please adjust city selections or lower network bounds to render maps.")
