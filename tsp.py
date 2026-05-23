@@ -238,15 +238,15 @@ with col_display:
         display_route = static_route
 
     if run_valid and display_route:
-        # FIXED: Correctly index tuple indices to extract explicit flat float lists
+        # Correctly unpack coordinate tuples
         lats = [ACTIVE_CITIES[city][0] for city in display_route]
         lons = [ACTIVE_CITIES[city][1] for city in display_route]
         names = [f"{idx+1}. {city}" for idx, city in enumerate(display_route)]
         
         fig = go.Figure()
         
-        # Plot route paths
-        fig.add_trace(go.Scattermap(
+        # Plot route path nodes and connections using highly stable Scattermapbox
+        fig.add_trace(go.Scattermapbox(
             lat=lats,
             lon=lons,
             mode='lines+markers',
@@ -257,9 +257,9 @@ with col_display:
             name="TSP Route"
         ))
         
-        # Emphasize origin hub location
+        # Highlight Origin Hub
         start_lat, start_lon = ACTIVE_CITIES[start_city]
-        fig.add_trace(go.Scattermap(
+        fig.add_trace(go.Scattermapbox(
             lat=[start_lat],
             lon=[start_lon],
             mode='markers',
