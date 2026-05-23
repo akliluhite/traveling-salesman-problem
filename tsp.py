@@ -156,7 +156,7 @@ def solve_backtracking():
     return tracker["best_path"]
 
 # -------------------------------------------------------------
-# LAYOUT PARTITIONING & CONTROLS (FIXED RATIO INDICES)
+# LAYOUT PARTITIONING & CONTROLS
 # -------------------------------------------------------------
 col_control, col_display = st.columns([1, 2])
 
@@ -185,21 +185,13 @@ with col_control:
     speed = st.slider("Step intervals (seconds):", min_value=0.05, max_value=2.0, value=0.3, step=0.05)
     trigger_sim = st.button("▶️ Launch Live Simulation", disabled=not run_valid)
 
-    # NEW FEATURE: MANUALLY BUILT ROUTE SANDBOX
-    st.markdown("---")
-    st.subheader("🎮 Human Intuition Sandbox")
-    st.caption("Try to build a shorter loop yourself by picking the sequence order!")
-    
-    manual_sequence = st.multiselect(
-        "Build your custom path sequence:",
-        options=other_cities,
-        help="Select cities in the exact order you wish to visit them."
-    )
-    
-    # Complete the loop automatically
-    manual_route = [start_city] + manual_sequence
-    if len(manual_sequence) == len(other_cities):
-        manual_route.append(start_city)
+if trigger_sim and run_valid:
+    st.session_state.sim_running = True
+    st.session_state.current_step = 1
+
+static_route = []
+total_static_dist = 0.0
+execution_time_ms = 0.0
 
 if run_valid:
     start_time = time.perf_counter()
@@ -217,33 +209,20 @@ if run_valid:
 # -------------------------------------------------------------
 with col_display:
     st.subheader("📊 Algorithmic Benchmarks")
-    m_col1, m_col2, m_col3 = st.columns(3)
+    m_col1, m_col2 = st.columns(2)
     
     if run_valid and static_route:
         m_col1.metric(label="Calculated Loop Distance", value=f"{total_static_dist:.2f} km")
         m_col2.metric(label="Compute Processing Velocity", value=f"{execution_time_ms:.2f} ms")
-        
-        # Human vs Machine comparison metric
-        if len(manual_sequence) == len(other_cities):
-            manual_dist = route_distance(manual_route, ACTIVE_CITIES)
-            efficiency = ((manual_dist - total_static_dist) / total_static_dist) * 100
-            m_col3.metric(
-                label="Your Sandbox Distance", 
-                value=f"{manual_dist:.2f} km", 
-                delta=f"{efficiency:.1f}% Longer than Algo",
-                delta_color="inverse"
-            )
-        else:
-            m_col3.metric(label="Your Sandbox Distance", value="Incomplete Path", delta="Add all cities")
     else:
-        m_col1.metric(label="Status", value="Error")
+        m_col1.metric(label="Calculated Loop Distance", value="N/A")
+        m_col2.metric(label="Compute Processing Velocity", value="N/A")
 
     # -------------------------------------------------------------
     # LIVE SIMULATION & MAP VISUALIZATION ENGINE
     # -------------------------------------------------------------
     st.subheader("🗺️ Interactive Route Vector Mapping")
     
-    # Handle Live Simulation Progression
     if st.session_state.sim_running and static_route:
         if st.session_state.current_step < len(static_route):
             display_route = static_route[:st.session_state.current_step + 1]
@@ -256,4 +235,35 @@ with col_display:
     else:
         display_route = static_route
 
-    # Generate DataFrames for plotting
+    if run_valid and display_route:
+        # Create mapping coordinates list
+        plot_records = []
+        for idx, city in enumerate(display_route):
+            lat, lon = ACTIVE_CITIES[city]
+            plot_records.append({
+                'City': city,
+                'Latitude': lat,
+                'Longitude': lon,
+                'Route Order': idx + 1
+            })
+            
+        df_plot = pd.DataFrame(plot_records)
+        
+        # Plotly Express modern map rendering
+        fig = px.line_map(
+            df_plot, 
+            lat="Latitude", 
+            lon="Longitude", 
+            hover_name="City",
+            text="City",
+            zoom=3,
+            height=600
+        )
+        
+        fig.update_traces(line=dict(width=4, color="#FF4B4B"), marker=dict(size=12))
+        fig.update_layout(
+            map_style="open-street-map",
+            margin={"r":0,"t":0,"l":0,"b":0}
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    else:
